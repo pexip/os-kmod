@@ -1,3 +1,4 @@
 /usr/include/
 /usr/lib/*/pkgconfig/
 /usr/lib/*/libkmod.*
+/usr/share/gtk-doc/

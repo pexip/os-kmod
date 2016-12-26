@@ -15,21 +15,22 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <errno.h>
 #include <string.h>
-#include <ctype.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <dirent.h>
+
+#include <shared/util.h>
 
 #include "libkmod.h"
 #include "libkmod-internal.h"
@@ -107,37 +108,6 @@ const char * const *kmod_softdep_get_post(const struct kmod_list *l, unsigned in
 	const struct kmod_softdep *dep = l->data;
 	*count = dep->n_post;
 	return dep->post;
-}
-
-/*
- * Replace dashes with underscores.
- * Dashes inside character range patterns (e.g. [0-9]) are left unchanged.
- */
-static char *underscores(struct kmod_ctx *ctx, char *s)
-{
-	unsigned int i;
-
-	if (!s)
-		return NULL;
-
-	for (i = 0; s[i]; i++) {
-		switch (s[i]) {
-		case '-':
-			s[i] = '_';
-			break;
-
-		case ']':
-			INFO(ctx, "Unmatched bracket in %s\n", s);
-			break;
-
-		case '[':
-			i += strcspn(&s[i], "]");
-			if (!s[i])
-				INFO(ctx, "Unmatched bracket in %s\n", s);
-			break;
-		}
-	}
-	return s;
 }
 
 static int kmod_config_add_command(struct kmod_config *config,
@@ -514,8 +484,11 @@ static void kcmdline_parse_result(struct kmod_config *config, char *modname,
 			kmod_config_add_blacklist(config, t);
 		}
 	} else {
-		kmod_config_add_options(config,
-				underscores(config->ctx, modname), param);
+		if (underscores(modname) < 0) {
+			ERR(config->ctx, "Ignoring bad option on kernel command line while parsing module name: '%s'\n",
+			    modname);
+		}
+		kmod_config_add_options(config, modname, param);
 	}
 }
 
@@ -593,7 +566,7 @@ static int kmod_config_parse(struct kmod_config *config, int fd,
 		return err;
 	}
 
-	while ((line = getline_wrapped(fp, &linenum)) != NULL) {
+	while ((line = freadline_wrapped(fp, &linenum)) != NULL) {
 		char *cmd, *saveptr;
 
 		if (line[0] == '\0' || line[0] == '#')
@@ -607,62 +580,51 @@ static int kmod_config_parse(struct kmod_config *config, int fd,
 			char *alias = strtok_r(NULL, "\t ", &saveptr);
 			char *modname = strtok_r(NULL, "\t ", &saveptr);
 
-			if (alias == NULL || modname == NULL)
+			if (underscores(alias) < 0 || underscores(modname) < 0)
 				goto syntax_error;
 
-			kmod_config_add_alias(config,
-						underscores(ctx, alias),
-						underscores(ctx, modname));
+			kmod_config_add_alias(config, alias, modname);
 		} else if (streq(cmd, "blacklist")) {
 			char *modname = strtok_r(NULL, "\t ", &saveptr);
 
-			if (modname == NULL)
+			if (underscores(modname) < 0)
 				goto syntax_error;
 
-			kmod_config_add_blacklist(config,
-						underscores(ctx, modname));
+			kmod_config_add_blacklist(config, modname);
 		} else if (streq(cmd, "options")) {
 			char *modname = strtok_r(NULL, "\t ", &saveptr);
 			char *options = strtok_r(NULL, "\0", &saveptr);
 
-			if (modname == NULL || options == NULL)
+			if (underscores(modname) < 0 || options == NULL)
 				goto syntax_error;
 
-			kmod_config_add_options(config,
-						underscores(ctx, modname),
-						options);
+			kmod_config_add_options(config, modname, options);
 		} else if (streq(cmd, "install")) {
 			char *modname = strtok_r(NULL, "\t ", &saveptr);
 			char *installcmd = strtok_r(NULL, "\0", &saveptr);
 
-			if (modname == NULL || installcmd == NULL)
+			if (underscores(modname) < 0 || installcmd == NULL)
 				goto syntax_error;
 
-			kmod_config_add_command(config,
-					underscores(ctx, modname),
-					installcmd,
+			kmod_config_add_command(config, modname, installcmd,
 					cmd, &config->install_commands);
 		} else if (streq(cmd, "remove")) {
 			char *modname = strtok_r(NULL, "\t ", &saveptr);
 			char *removecmd = strtok_r(NULL, "\0", &saveptr);
 
-			if (modname == NULL || removecmd == NULL)
+			if (underscores(modname) < 0 || removecmd == NULL)
 				goto syntax_error;
 
-			kmod_config_add_command(config,
-					underscores(ctx, modname),
-					removecmd,
+			kmod_config_add_command(config, modname, removecmd,
 					cmd, &config->remove_commands);
 		} else if (streq(cmd, "softdep")) {
 			char *modname = strtok_r(NULL, "\t ", &saveptr);
 			char *softdeps = strtok_r(NULL, "\0", &saveptr);
 
-			if (modname == NULL || softdeps == NULL)
+			if (underscores(modname) < 0 || softdeps == NULL)
 				goto syntax_error;
 
-			kmod_config_add_softdep(config,
-					underscores(ctx, modname),
-					softdeps);
+			kmod_config_add_softdep(config, modname, softdeps);
 		} else if (streq(cmd, "include")
 				|| streq(cmd, "config")) {
 			ERR(ctx, "%s: command %s is deprecated and not parsed anymore\n",

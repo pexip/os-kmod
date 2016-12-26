@@ -22,16 +22,18 @@
 #include <stdlib.h>
 #include <syslog.h>
 
-#include "libkmod.h"
+#include <libkmod/libkmod.h>
+
 #include "kmod.h"
 
-static bool log_use_syslog;
-static int log_priority = LOG_ERR;
+#define PRIO_MAX_SIZE 32
 
-static _always_inline_ const char *prio_to_str(int prio)
+static bool log_use_syslog;
+static int log_priority = LOG_WARNING;
+
+static const char *prio_to_str(char buf[static PRIO_MAX_SIZE], int prio)
 {
 	const char *prioname;
-	char buf[32];
 
 	switch (prio) {
 	case LOG_CRIT:
@@ -53,7 +55,7 @@ static _always_inline_ const char *prio_to_str(int prio)
 		prioname = "DEBUG";
 		break;
 	default:
-		snprintf(buf, sizeof(buf), "LOG-%03d", prio);
+		snprintf(buf, PRIO_MAX_SIZE, "LOG-%03d", prio);
 		prioname = buf;
 	}
 
@@ -64,8 +66,11 @@ _printf_format_(6, 0)
 static void log_kmod(void *data, int priority, const char *file, int line,
 		     const char *fn, const char *format, va_list args)
 {
-	const char *prioname = prio_to_str(priority);
+	char buf[PRIO_MAX_SIZE];
+	const char *prioname;
 	char *str;
+
+	prioname = prio_to_str(buf, priority);
 
 	if (vasprintf(&str, format, args) < 0)
 		return;
@@ -107,6 +112,7 @@ void log_close(void)
 
 void log_printf(int prio, const char *fmt, ...)
 {
+	char buf[PRIO_MAX_SIZE];
 	const char *prioname;
 	char *msg;
 	va_list args;
@@ -121,7 +127,7 @@ void log_printf(int prio, const char *fmt, ...)
 	if (msg == NULL)
 		return;
 
-	prioname = prio_to_str(prio);
+	prioname = prio_to_str(buf, prio);
 
 	if (log_use_syslog)
 		syslog(prio, "%s: %s", prioname, msg);

@@ -1,3 +1,43 @@
+kmod (23-2) unstable; urgency=medium
+
+  * Backported upstream commit 6b77f18 to stop depmod crashing after
+    detecting a dependency cycle. (Closes: #846888)
+  * Enabled hardening=+bindnow.
+
+ -- Marco d'Itri <md@linux.it>  Mon, 26 Dec 2016 03:42:54 +0100
+
+kmod (23-1) unstable; urgency=medium
+
+  * New upstream release. (Closes: #837626)
+
+ -- Marco d'Itri <md@linux.it>  Tue, 27 Sep 2016 01:40:32 +0200
+
+kmod (22-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Set $SOURCE_DATE_EPOCH in debian/rules for reproducibility.
+    (Closes: #783152)
+  * Remove the module-init-tools transitional package.
+
+ -- Marco d'Itri <md@linux.it>  Sun, 20 Dec 2015 17:04:10 +0100
+
+kmod (21-1) unstable; urgency=medium
+
+  * New upstream release. Fixes:
+    + spurious spaces in lsmod output. (Closes: #782692)
+    + a missing comman in rmmod(8). (Closes: #787548)
+  * kmod.init: support the modules-load.d directories in /usr.
+    (Closes: #673747)
+  * Build the developers' documentation with gtk-doc. (Closes: #789462)
+
+ -- Marco d'Itri <md@linux.it>  Sun, 05 Jul 2015 21:18:24 +0200
+
+kmod (20-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Marco d'Itri <md@linux.it>  Sun, 08 Mar 2015 19:10:08 +0100
+
 kmod (18-3) unstable; urgency=high
 
   * postinst: do not use autodie. (Closes: #762974)

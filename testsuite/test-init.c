@@ -12,17 +12,20 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <inttypes.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
-#include <libkmod.h>
+
+#include <shared/macro.h>
+
+#include <libkmod/libkmod.h>
 
 #include "testsuite.h"
 
@@ -39,7 +42,7 @@ static noreturn int test_initlib(const struct test *t)
 
 	exit(EXIT_SUCCESS);
 }
-static DEFINE_TEST(test_initlib,
+DEFINE_TEST(test_initlib,
 		.description = "test if libkmod's init function work");
 
 static noreturn int test_insert(const struct test *t)
@@ -53,7 +56,7 @@ static noreturn int test_insert(const struct test *t)
 	if (ctx == NULL)
 		exit(EXIT_FAILURE);
 
-	err = kmod_module_new_from_path(ctx, "/ext4-x86_64.ko", &mod);
+	err = kmod_module_new_from_path(ctx, "/mod-simple.ko", &mod);
 	if (err != 0) {
 		ERR("could not create module from path: %m\n");
 		exit(EXIT_FAILURE);
@@ -68,19 +71,19 @@ static noreturn int test_insert(const struct test *t)
 
 	exit(EXIT_SUCCESS);
 }
-static DEFINE_TEST(test_insert,
+DEFINE_TEST(test_insert,
 	.description = "test if libkmod's insert_module returns ok",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-init/",
 		[TC_INIT_MODULE_RETCODES] = "bla:1:20",
 	},
-	.modules_loaded = "ext4",
+	.modules_loaded = "mod_simple",
 	.need_spawn = true);
 
 static noreturn int test_remove(const struct test *t)
 {
 	struct kmod_ctx *ctx;
-	struct kmod_module *mod;
+	struct kmod_module *mod_simple, *mod_bla;
 	const char *null_config = NULL;
 	int err;
 
@@ -88,34 +91,41 @@ static noreturn int test_remove(const struct test *t)
 	if (ctx == NULL)
 		exit(EXIT_FAILURE);
 
-	err = kmod_module_new_from_name(ctx, "ext4", &mod);
+	err = kmod_module_new_from_name(ctx, "mod-simple", &mod_simple);
 	if (err != 0) {
-		ERR("could not create module from name: %m\n");
+		ERR("could not create module from name: %s\n", strerror(-err));
 		exit(EXIT_FAILURE);
 	}
 
-	err = kmod_module_remove_module(mod, 0);
+	err = kmod_module_new_from_name(ctx, "bla", &mod_bla);
 	if (err != 0) {
-		ERR("could not remove module: %m\n");
+		ERR("could not create module from name: %s\n", strerror(-err));
 		exit(EXIT_FAILURE);
 	}
+
+	err = kmod_module_remove_module(mod_simple, 0);
+	if (err != 0) {
+		ERR("could not remove module: %s\n", strerror(-err));
+		exit(EXIT_FAILURE);
+	}
+
+	err = kmod_module_remove_module(mod_bla, 0);
+	if (err != -ENOENT) {
+		ERR("wrong return code for failure test: %d\n", err);
+		exit(EXIT_FAILURE);
+	}
+
 	kmod_unref(ctx);
 
 	exit(EXIT_SUCCESS);
 }
-static DEFINE_TEST(test_remove,
+DEFINE_TEST(test_remove,
 	.description = "test if libkmod's remove_module returns ok",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-remove/",
-		[TC_DELETE_MODULE_RETCODES] = "bla:1:20",
+		[TC_DELETE_MODULE_RETCODES] =
+			"mod-simple:0:0:bla:-1:" STRINGIFY(ENOENT),
 	},
 	.need_spawn = true);
 
-static const struct test *tests[] = {
-	&stest_initlib,
-	&stest_insert,
-	&stest_remove,
-	NULL,
-};
-
-TESTSUITE_MAIN(tests);
+TESTSUITE_MAIN();

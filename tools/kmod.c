@@ -17,12 +17,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <errno.h>
 #include <getopt.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <libkmod.h>
+
+#include <shared/util.h>
+
+#include <libkmod/libkmod.h>
+
 #include "kmod.h"
 
 static const char options_s[] = "+hV";
@@ -38,6 +42,11 @@ static const struct kmod_cmd *kmod_cmds[] = {
 	&kmod_cmd_help,
 	&kmod_cmd_list,
 	&kmod_cmd_static_nodes,
+
+#ifdef ENABLE_EXPERIMENTAL
+	&kmod_cmd_insert,
+	&kmod_cmd_remove,
+#endif
 };
 
 static const struct kmod_cmd *kmod_compat_cmds[] = {
@@ -104,7 +113,8 @@ static int handle_kmod_commands(int argc, char *argv[])
 			kmod_help(argc, argv);
 			return EXIT_SUCCESS;
 		case 'V':
-			puts("kmod version " VERSION);
+			puts(PACKAGE " version " VERSION);
+			puts(KMOD_FEATURES);
 			return EXIT_SUCCESS;
 		case '?':
 			return EXIT_FAILURE;
@@ -122,10 +132,10 @@ static int handle_kmod_commands(int argc, char *argv[])
 	cmd = argv[optind];
 
 	for (i = 0, err = -EINVAL; i < ARRAY_SIZE(kmod_cmds); i++) {
-		if (strcmp(kmod_cmds[i]->name, cmd) != 0)
-			continue;
-
-		err = kmod_cmds[i]->cmd(--argc, ++argv);
+		if (streq(kmod_cmds[i]->name, cmd)) {
+			err = kmod_cmds[i]->cmd(--argc, ++argv);
+			break;
+		}
 	}
 
 	if (err < 0) {
@@ -149,7 +159,7 @@ static int handle_kmod_compat_commands(int argc, char *argv[])
 	cmd = basename(argv[0]);
 
 	for (i = 0; i < ARRAY_SIZE(kmod_compat_cmds); i++) {
-		if (strcmp(kmod_compat_cmds[i]->name, cmd) == 0)
+		if (streq(kmod_compat_cmds[i]->name, cmd))
 			return kmod_compat_cmds[i]->cmd(argc, argv);
 	}
 
@@ -160,7 +170,7 @@ int main(int argc, char *argv[])
 {
 	int err;
 
-	if (strcmp(program_invocation_short_name, "kmod") == 0)
+	if (streq(program_invocation_short_name, "kmod"))
 		err = handle_kmod_commands(argc, argv);
 	else
 		err = handle_kmod_compat_commands(argc, argv);

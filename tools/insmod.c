@@ -17,12 +17,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <getopt.h>
-#include <errno.h>
 #include <string.h>
-#include "libkmod.h"
+
+#include <shared/util.h>
+
+#include <libkmod/libkmod.h>
 
 #include "kmod.h"
 
@@ -68,6 +71,7 @@ static int do_insmod(int argc, char *argv[])
 	size_t optslen = 0;
 	int i, err;
 	const char *null_config = NULL;
+	unsigned int flags = 0;
 
 	for (;;) {
 		int c, idx = 0;
@@ -77,14 +81,18 @@ static int do_insmod(int argc, char *argv[])
 		switch (c) {
 		case 'p':
 		case 's':
-		case 'f':
 			/* ignored, for compatibility only */
+			break;
+		case 'f':
+			flags |= KMOD_PROBE_FORCE_MODVERSION;
+			flags |= KMOD_PROBE_FORCE_VERMAGIC;
 			break;
 		case 'h':
 			help();
 			return EXIT_SUCCESS;
 		case 'V':
 			puts(PACKAGE " version " VERSION);
+			puts(KMOD_FEATURES);
 			return EXIT_SUCCESS;
 		case '?':
 			return EXIT_FAILURE;
@@ -101,7 +109,7 @@ static int do_insmod(int argc, char *argv[])
 	}
 
 	filename = argv[optind];
-	if (strcmp(filename, "-") == 0) {
+	if (streq(filename, "-")) {
 		ERR("this tool does not support loading from stdin!\n");
 		return EXIT_FAILURE;
 	}
@@ -138,7 +146,7 @@ static int do_insmod(int argc, char *argv[])
 		goto end;
 	}
 
-	err = kmod_module_insert_module(mod, 0, opts);
+	err = kmod_module_insert_module(mod, flags, opts);
 	if (err < 0) {
 		ERR("could not insert module %s: %s\n", filename,
 		    mod_strerror(-err));

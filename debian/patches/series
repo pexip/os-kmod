@@ -1,8 +1,6 @@
-commit-74c2694
+commit-6b77f18
 
 # fixes to be pushed upstream
-fix_depmod_man
-add_kmod_man
 verbose_missing_bin
 check_builtin_kver
 
