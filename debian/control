@@ -1,12 +1,14 @@
 Source: kmod
 Section: admin
 Priority: important
-Maintainer: Marco d'Itri <md@linux.it>
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Marco d'Itri <md@linux.it>
 Build-Depends: debhelper (>> 9), xsltproc,
   autoconf, automake, libtool, gtk-doc-tools
 Standards-Version: 3.9.5
 Vcs-Git: git://anonscm.debian.org/git/users/md/kmod.git
 Vcs-Browser: http://anonscm.debian.org/cgit/users/md/kmod.git
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ jessie
 
 Package: kmod
 Architecture: linux-any
