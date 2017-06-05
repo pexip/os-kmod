@@ -52,10 +52,26 @@ convert_etc_modules() {
   fi
 }
 
+remove_old_maps() {
+  if dpkg --compare-versions "$2" ge "18-3pexip2"; then
+    return
+  fi
+
+  rm -f /lib/modules/4.4.0-1pexip1-amd64/modules.ccwmap
+  rm -f /lib/modules/4.4.0-1pexip1-amd64/modules.ieee1394map
+  rm -f /lib/modules/4.4.0-1pexip1-amd64/modules.inputmap
+  rm -f /lib/modules/4.4.0-1pexip1-amd64/modules.isapnpmap
+  rm -f /lib/modules/4.4.0-1pexip1-amd64/modules.ofmap
+  rm -f /lib/modules/4.4.0-1pexip1-amd64/modules.pcimap
+  rm -f /lib/modules/4.4.0-1pexip1-amd64/modules.seriomap
+  rm -f /lib/modules/4.4.0-1pexip1-amd64/modules.usbmap
+}
+
 case "$1" in
   configure)
   create_etc_modules
   convert_etc_modules "$@"
+  remove_old_maps "$@"
 esac
 
 #DEBHELPER#

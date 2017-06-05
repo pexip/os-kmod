@@ -1,3 +1,9 @@
+kmod (18-3pexip2) pexip; urgency=low
+
+  * Clean unused map files on upgrade
+
+ -- John-Mark Bell <jmb@pexip.com>  Mon, 05 Jun 2017 14:31:59 +0100
+
 kmod (18-3pexip1) pexip; urgency=low
 
   * Prepare Pexip packaging
