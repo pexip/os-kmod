@@ -14,15 +14,17 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <endian.h>
-#include <stdint.h>
+#include <inttypes.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
+
+#include <shared/missing.h>
+#include <shared/util.h>
 
 #include "libkmod-internal.h"
 
@@ -67,23 +69,18 @@ const char *const pkey_hash_algo[PKEY_HASH__LAST] = {
 enum pkey_id_type {
 	PKEY_ID_PGP,		/* OpenPGP generated key ID */
 	PKEY_ID_X509,		/* X.509 arbitrary subjectKeyIdentifier */
+	PKEY_ID_PKCS7,		/* Signature in PKCS#7 message */
 	PKEY_ID_TYPE__LAST
 };
 
 const char *const pkey_id_type[PKEY_ID_TYPE__LAST] = {
 	[PKEY_ID_PGP]		= "PGP",
 	[PKEY_ID_X509]		= "X509",
+	[PKEY_ID_PKCS7]		= "PKCS#7",
 };
 
 /*
  * Module signature information block.
- *
- * The constituents of the signature section are, in order:
- *
- *	- Signer's name
- *	- Key identifier
- *	- Signature data
- *	- Information block
  */
 struct module_signature {
 	uint8_t algo;        /* Public-key crypto algorithm [enum pkey_algo] */
@@ -96,6 +93,17 @@ struct module_signature {
 };
 
 #define SIG_MAGIC "~Module signature appended~\n"
+
+/*
+ * A signed module has the following layout:
+ *
+ * [ module                  ]
+ * [ signer's name           ]
+ * [ key identifier          ]
+ * [ signature data          ]
+ * [ struct module_signature ]
+ * [ SIG_MAGIC               ]
+ */
 
 bool kmod_module_signature_info(const struct kmod_file *file, struct kmod_signature_info *sig_info)
 {
@@ -122,7 +130,8 @@ bool kmod_module_signature_info(const struct kmod_file *file, struct kmod_signat
 			modsig->id_type >= PKEY_ID_TYPE__LAST)
 		return false;
 	sig_len = be32toh(get_unaligned(&modsig->sig_len));
-	if (size < (off_t)(modsig->signer_len + modsig->key_id_len + sig_len))
+	if (sig_len == 0 ||
+	    size < (int64_t)(modsig->signer_len + modsig->key_id_len + sig_len))
 		return false;
 
 	size -= modsig->key_id_len + sig_len;

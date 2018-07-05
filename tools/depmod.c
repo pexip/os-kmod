@@ -16,24 +16,27 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "libkmod.h"
-#include "libkmod-array.h"
-#include "libkmod-hash.h"
-#include "libkmod-util.h"
 
+#include <assert.h>
+#include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
+#include <getopt.h>
+#include <limits.h>
+#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <getopt.h>
-#include <errno.h>
 #include <string.h>
-#include <limits.h>
-#include <dirent.h>
-#include <sys/utsname.h>
-#include <sys/stat.h>
-#include <regex.h>
-#include <assert.h>
 #include <unistd.h>
-#include <ctype.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
+
+#include <shared/array.h>
+#include <shared/hash.h>
+#include <shared/macro.h>
+#include <shared/util.h>
+
+#include <libkmod/libkmod.h>
 
 #include "kmod.h"
 
@@ -119,7 +122,6 @@ static inline void _show(const char *fmt, ...)
 
 /* binary index write *************************************************/
 #include <arpa/inet.h>
-#include "macro.h"
 /* BEGIN: code from module-init-tools/index.c just modified to compile here.
  *
  * Original copyright:
@@ -140,84 +142,13 @@ static inline void _show(const char *fmt, ...)
  *   along with these programs.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* Integers are stored as 32 bit unsigned in "network" order, i.e. MSB first.
-   All files start with a magic number.
+/* see documentation in libkmod/libkmod-index.c */
 
-   Magic spells "BOOTFAST". Second one used on newer versioned binary files.
- */
-/* #define INDEX_MAGIC_OLD 0xB007FA57 */
 #define INDEX_MAGIC 0xB007F457
-
-/* We use a version string to keep track of changes to the binary format
- * This is stored in the form: INDEX_MAJOR (hi) INDEX_MINOR (lo) just in
- * case we ever decide to have minor changes that are not incompatible.
- */
-
 #define INDEX_VERSION_MAJOR 0x0002
 #define INDEX_VERSION_MINOR 0x0001
 #define INDEX_VERSION ((INDEX_VERSION_MAJOR<<16)|INDEX_VERSION_MINOR)
-
-/* The index file maps keys to values. Both keys and values are ASCII strings.
-   Each key can have multiple values. Values are sorted by an integer priority.
-
-   The reader also implements a wildcard search (including range expressions)
-   where the keys in the index are treated as patterns.
-   This feature is required for module aliases.
-*/
-
-/* Implementation is based on a radix tree, or "trie".
-   Each arc from parent to child is labelled with a character.
-   Each path from the root represents a string.
-
-   == Example strings ==
-
-   ask
-   ate
-   on
-   once
-   one
-
-   == Key ==
-    + Normal node
-    * Marked node, representing a key and it's values.
-
-   +
-   |-a-+-s-+-k-*
-   |   |
-   |   `-t-+-e-*
-   |
-   `-o-+-n-*-c-+-e-*
-           |
-           `-e-*
-
-   Naive implementations tend to be very space inefficient; child pointers
-   are stored in arrays indexed by character, but most child pointers are null.
-
-   Our implementation uses a scheme described by Wikipedia as a Patrica trie,
-
-       "easiest to understand as a space-optimized trie where
-        each node with only one child is merged with its child"
-
-   +
-   |-a-+-sk-*
-   |   |
-   |   `-te-*
-   |
-   `-on-*-ce-*
-        |
-        `-e-*
-
-   We still use arrays of child pointers indexed by a single character;
-   the remaining characters of the label are stored as a "prefix" in the child.
-
-   The paper describing the original Patrica trie works on individiual bits -
-   each node has a maximum of two children, which increases space efficiency.
-   However for this application it is simpler to use the ASCII character set.
-   Since the index file is read-only, it can be compressed by omitting null
-   child pointers at the start and end of arrays.
-*/
-
-#define INDEX_PRIORITY_MIN UINT32_MAX
+#define INDEX_CHILDMAX 128
 
 struct index_value {
 	struct index_value *next;
@@ -226,8 +157,6 @@ struct index_value {
 };
 
 /* In-memory index (depmod only) */
-
-#define INDEX_CHILDMAX 128
 struct index_node {
 	char *prefix;		/* path compression */
 	struct index_value *values;
@@ -236,32 +165,6 @@ struct index_node {
 	struct index_node *children[INDEX_CHILDMAX]; /* indexed by character */
 };
 
-/* Disk format:
-
-   uint32_t magic = INDEX_MAGIC;
-   uint32_t version = INDEX_VERSION;
-   uint32_t root_offset;
-
-   (node_offset & INDEX_NODE_MASK) specifies the file offset of nodes:
-
-        char[] prefix; // nul terminated
-
-        char first;
-        char last;
-        uint32_t children[last - first + 1];
-
-        uint32_t value_count;
-        struct {
-            uint32_t priority;
-            char[] value; // nul terminated
-        } values[value_count];
-
-   (node_offset & INDEX_NODE_FLAGS) indicates which fields are present.
-   Empty prefixes are omitted, leaf nodes omit the three child-related fields.
-
-   This could be optimised further by adding a sparse child format
-   (indicated using a new flag).
- */
 
 /* Format of node offsets within index file */
 enum node_offset {
@@ -464,9 +367,10 @@ static uint32_t index_write__node(const struct index_node *node, FILE *out)
 		fputc(node->first, out);
 		fputc(node->last, out);
 		fwrite(child_offs, sizeof(uint32_t), child_count, out);
-		free(child_offs);
 		offset |= INDEX_NODE_CHILDS;
 	}
+
+	free(child_offs);
 
 	if (node->values) {
 		const struct index_value *v;
@@ -503,6 +407,7 @@ static void index_write(const struct index_node *node, FILE *out)
 
 	/* Second word is reserved for the offset of the root node */
 	initial_offset = ftell(out);
+	assert(initial_offset >= 0);
 	u = 0;
 	fwrite(&u, sizeof(uint32_t), 1, out);
 
@@ -511,48 +416,14 @@ static void index_write(const struct index_node *node, FILE *out)
 
 	/* Update first word */
 	final_offset = ftell(out);
-	fseek(out, initial_offset, SEEK_SET);
+	assert(final_offset >= 0);
+	(void)fseek(out, initial_offset, SEEK_SET);
 	fwrite(&u, sizeof(uint32_t), 1, out);
-	fseek(out, final_offset, SEEK_SET);
+	(void)fseek(out, final_offset, SEEK_SET);
 }
 
 /* END: code from module-init-tools/index.c just modified to compile here.
  */
-
-/* utils (variants of libkmod-utils.c) *********************************/
-static const char *underscores2(const char *input, char *output, size_t outputlen)
-{
-	size_t i;
-
-	for (i = 0; input[i] != '\0' && i < outputlen - 1; i++) {
-		switch (input[i]) {
-		case '-':
-			output[i] = '_';
-			break;
-
-		case ']':
-			WRN("Unmatched bracket in %s\n", input);
-			return NULL;
-
-		case '[': {
-			size_t off = strcspn(input + i, "]");
-			if (input[i + off] == '\0') {
-				WRN("Unmatched bracket in %s\n", input);
-				return NULL;
-			}
-			memcpy(output + i, input + i, off + 1);
-			i += off;
-			break;
-		}
-
-		default:
-			output[i] = input[i];
-		}
-	}
-	output[i] = '\0';
-
-	return output;
-}
 
 /* configuration parsing **********************************************/
 struct cfg_override {
@@ -683,7 +554,7 @@ static int cfg_file_parse(struct cfg *cfg, const char *filename)
 		return err;
 	}
 
-	while ((line = getline_wrapped(fp, &linenum)) != NULL) {
+	while ((line = freadline_wrapped(fp, &linenum)) != NULL) {
 		char *cmd, *saveptr;
 
 		if (line[0] == '\0' || line[0] == '#')
@@ -1080,7 +951,7 @@ static int depmod_module_add(struct depmod *depmod, struct kmod_module *kmod)
 
 	if (mod->relpath != NULL) {
 		size_t uncrelpathlen = lastslash - mod->relpath + modnamesz
-				       + kmod_exts[KMOD_EXT_UNC].len;
+				       + strlen(KMOD_EXTENSION_UNCOMPRESSED);
 		mod->uncrelpath = memdup(mod->relpath, uncrelpathlen + 1);
 		mod->uncrelpath[uncrelpathlen] = '\0';
 		err = hash_add_unique(depmod->modules_by_uncrelpath,
@@ -1956,7 +1827,6 @@ static int output_aliases(struct depmod *depmod, FILE *out)
 
 static int output_aliases_bin(struct depmod *depmod, FILE *out)
 {
-	char buf[1024];
 	struct index_node *idx;
 	size_t i;
 
@@ -1974,15 +1844,18 @@ static int output_aliases_bin(struct depmod *depmod, FILE *out)
 		kmod_list_foreach(l, mod->info_list) {
 			const char *key = kmod_module_info_get_key(l);
 			const char *value = kmod_module_info_get_value(l);
+			char buf[PATH_MAX];
 			const char *alias;
 			int duplicate;
 
 			if (!streq(key, "alias"))
 				continue;
 
-			alias = underscores2(value, buf, sizeof(buf));
-			if (alias == NULL)
+			if (alias_normalize(value, buf, NULL) < 0) {
+				WRN("Unmatched bracket in %s\n", value);
 				continue;
+			}
+			alias = buf;
 
 			duplicate = index_insert(idx, alias, mod->modname,
 						 mod->idx);
@@ -2126,8 +1999,7 @@ static int output_builtin_bin(struct depmod *depmod, FILE *out)
 static int output_devname(struct depmod *depmod, FILE *out)
 {
 	size_t i;
-
-	fputs("# Device nodes to trigger on-demand module loading.\n", out);
+	bool empty = true;
 
 	for (i = 0; i < depmod->modules.count; i++) {
 		const struct mod *mod = depmod->modules.array[i];
@@ -2163,10 +2035,15 @@ static int output_devname(struct depmod *depmod, FILE *out)
 		}
 
 		if (devname != NULL) {
-			if (type != '\0')
+			if (type != '\0') {
+				if (empty) {
+					fputs("# Device nodes to trigger on-demand module loading.\n",
+					      out);
+					empty = false;
+				}
 				fprintf(out, "%s %s %c%u:%u\n", mod->modname,
 					devname, type, major, minor);
-			else
+                        } else
 				ERR("Module '%s' has devname (%s) but "
 				    "lacks major and minor information. "
 				    "Ignoring.\n", mod->modname, devname);
@@ -2276,6 +2153,8 @@ static void depmod_add_fake_syms(struct depmod *depmod)
 	depmod_symbol_add(depmod, "__this_module", true, 0, NULL);
 	/* On S390, this is faked up too */
 	depmod_symbol_add(depmod, "_GLOBAL_OFFSET_TABLE_", true, 0, NULL);
+	/* On PowerPC64 ABIv2, .TOC. is more or less _GLOBAL_OFFSET_TABLE_ */
+	depmod_symbol_add(depmod, "TOC.", true, 0, NULL);
 }
 
 static int depmod_load_symvers(struct depmod *depmod, const char *filename)
@@ -2508,8 +2387,8 @@ static int do_depmod(int argc, char *argv[])
 {
 	FILE *out = NULL;
 	int err = 0, all = 0, maybe_all = 0, n_config_paths = 0;
-	char *root = NULL;
-	const char **config_paths = NULL;
+	_cleanup_free_ char *root = NULL;
+	_cleanup_free_ const char **config_paths = NULL;
 	const char *system_map = NULL;
 	const char *module_symvers = NULL;
 	const char *null_kmod_config = NULL;
@@ -2534,6 +2413,8 @@ static int do_depmod(int argc, char *argv[])
 			maybe_all = 1;
 			break;
 		case 'b':
+			if (root)
+				free(root);
 			root = path_make_absolute_cwd(optarg);
 			break;
 		case 'C': {
@@ -2588,11 +2469,10 @@ static int do_depmod(int argc, char *argv[])
 			break;
 		case 'h':
 			help();
-			free(config_paths);
 			return EXIT_SUCCESS;
 		case 'V':
 			puts(PACKAGE " version " VERSION);
-			free(config_paths);
+			puts(KMOD_FEATURES);
 			return EXIT_SUCCESS;
 		case '?':
 			goto cmdline_failed;
@@ -2602,7 +2482,11 @@ static int do_depmod(int argc, char *argv[])
 		}
 	}
 
-	if (optind < argc && is_version_number(argv[optind])) {
+	if (optind < argc) {
+		if (!is_version_number(argv[optind])) {
+			ERR("Bad version passed %s\n", argv[optind]);
+			goto cmdline_failed;
+		}
 		cfg.kversion = argv[optind];
 		optind++;
 	} else {
@@ -2624,11 +2508,8 @@ static int do_depmod(int argc, char *argv[])
 		if (out == stdout)
 			goto done;
 		/* ignore up-to-date errors (< 0) */
-		if (depfile_up_to_date(cfg.dirname) == 1) {
-			DBG("%s/modules.dep is up to date!\n", cfg.dirname);
+		if (depfile_up_to_date(cfg.dirname) == 1)
 			goto done;
-		}
-		DBG("%s/modules.dep is outdated, do -a\n", cfg.dirname);
 		all = 1;
 	}
 
@@ -2723,7 +2604,6 @@ static int do_depmod(int argc, char *argv[])
 done:
 	depmod_shutdown(&depmod);
 	cfg_free(&cfg);
-	free(config_paths);
 	return err >= 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 
 cmdline_modules_failed:
@@ -2733,8 +2613,6 @@ depmod_init_failed:
 		kmod_unref(ctx);
 cmdline_failed:
 	cfg_free(&cfg);
-	free(config_paths);
-	free(root);
 	return EXIT_FAILURE;
 }
 

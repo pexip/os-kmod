@@ -1,3 +1,137 @@
+kmod 23
+=======
+
+- Improvements:
+	- Don't add comment to modules.devname if it would otherwise be empty
+	  to play nice with tools detecting empty files
+
+	- Allow building with BSD sed, that doesn't have -E flag
+
+	- Ignore .TOC. symbols in depmod parsing as it's for PPC64 the
+	  equivalent of _GLOBAL_OFFSET_TABLE_
+
+	- Teach modinfo about PKCS#7 module signatures: it doesn't add any
+	  other info besides telling the user the module is signed since
+	  kernel doesn't add other info on the module section
+
+- Bug fixes
+
+	- Fix -s and -p compat options to insmod triggering force flag
+
+	- Fix long lines from /proc/modules not being handled correctly by
+	  kmod_module_new_from_loaded() and kmod_module_get_size() and several
+	  other library functions that use them
+
+	- Fix crash on modinfo while checking for available signature of
+	  unknown type
+
+	- Fix documentation generation with gtk-doc
+
+kmod 22
+=======
+
+- Tools:
+	- Change defaul log level for tools to WARNING rather than ERROR and update
+	  some log levels for current messages
+
+	- depmod doesn't fallback to uname if a bad version is passed in the command
+	  line anymore. We just exit with an error.
+
+	- insmod was taught the -f flag, just like in modprobe. It was previously
+	  silently ignoring it.
+
+- libkmod
+	- New kmod_get_dirname() API to get the module directory set in the
+	  context
+
+- Bug fixes:
+	- Fix return code in error path of kmod_module_insert_module(). We were
+	  previously returning ENOSYS rather than ENOENT.
+
+kmod 21
+=======
+
+- New features:
+	- kmod tool started to learn the "insert" and "remove" commands that
+	  are the simplified versions of the older modprobe tool.  These
+	  commands are still work in progress so they are hidden behind a
+	  --enable-experimental flag during build.  It should not be enabled
+	  unless you know what you're doing.
+	- kmod tool now prints the relevant configuration options it was built
+	  with when the "--version" argument is passed. This helps to mitigate
+	  problems for example when the user is trying to load a compressed
+	  module but kmod was built without support for the compression method.
+
+- Improvements to testsuite:
+	- Cache built modules so it is easier to run "make check" on build
+	  servers by distro maintainers. If kmod is configured with
+	  --disable-test-modules the modules from cache will be used by
+	  "make check". No changes to the tests are needed and all of them
+	  can run fine.
+
+kmod 20
+=======
+- Bug fixes:
+	- Handle bogus values from ELF, making sure they don't overflow while
+	  parsing the file
+	- Fix leak in depmod when -b flag is passed multiple times
+	- Multiple minor fixes from static analysis by coverity and
+	  clang-analyze
+	- Fix race between loading modules and checking if it's loaded in the
+	  kernel
+
+- New features:
+	- There's a change in behavior regarding builtin modules: we now only
+	  consider as builtin those that are present in modules.builtin index.
+	  Previously we were also checking the presence of
+	  /sys/module/<module-name>, but this is racy and only modules that
+	  contain parameters are the ones creating a directory in sysfs.
+
+	  Now some commands will start to fail, e.g. "modprobe vt". Since vt
+	  can't be compiled as a module it's not present in modules.builtin
+	  index. Previously we would report at as builtin, but now we fail
+	  because we couldn't find the module.
+
+- Improvements:
+	- Integration of gcov into the build. Currently libkmod is at ~70%
+	  covered and tools at ~50% by tests in the testsuite. Utility
+	  functions and structures in shared have more than 90% of coverage.
+	- Upload build to coverity
+
+- Improvements to testsuite:
+	- Fix parsing return codes of init_module() calls
+	- Add tests for utility functions in shared/
+	- Add tests for kmod_module_remove_module()
+	- Add playground, in which our own modules are compiled
+	- Port all tests to use modules from module-playground instead of
+	  copying prebuilt modules to the repository
+	- Properly handle binaries that exit with no output
+	- Besides comparing the output of commands, allow to copy to
+	  stdout/stderr
+
+kmod 19
+=======
+
+- Bug fixes:
+	- Fix missing CLOEXEC in library
+	- Fix error message while opening kmod's index
+
+- New features:
+	- Add kmod(8) man page
+	- Allow to build with libc's without be32toh()
+	- Move code around separating common code and data structures into a
+	  shared directory. This allows to share more code between library and
+	  tools, making the binary size of tools smaller.
+	- Clarify tools vs library licenses
+	- static-nodes: when writing in tmpfiles format, indicate that
+	  creation of static nodes should only happen at boot. This is used and
+	  required by systemd-217+.
+
+- Improvements to testsuite:
+	- Add tests for newly created shared/ code
+	- Improve how tests are declared so there's less boilerplate code for
+	  each test.
+
 kmod 18
 =======
 

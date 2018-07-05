@@ -13,8 +13,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef HAVE_FINIT_MODULE
@@ -22,26 +21,28 @@
 #endif
 
 #include <assert.h>
+#include <dirent.h>
+#include <dlfcn.h>
 #include <elf.h>
 #include <errno.h>
-#include <dirent.h>
 #include <fcntl.h>
-#include <dlfcn.h>
 #include <limits.h>
-#include <stdlib.h>
 #include <stdarg.h>
 #include <stddef.h>
-#include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <sys/mman.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/types.h>
 #include <sys/utsname.h>
-#include <unistd.h>
+
+#include <shared/util.h>
 
 /* kmod_elf_get_section() is not exported, we need the private header */
-#include <libkmod-internal.h>
+#include <libkmod/libkmod-internal.h>
 
 /* FIXME: hack, change name so we don't clash */
 #undef ERR
@@ -167,7 +168,7 @@ static struct mod *find_module(struct mod *_modules, const char *modname)
 	struct mod *mod;
 
 	for (mod = _modules; mod != NULL; mod = mod->next) {
-		if (strcmp(mod->name, modname) == 0)
+		if (streq(mod->name, modname))
 			return mod;
 	}
 

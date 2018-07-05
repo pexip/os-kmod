@@ -14,15 +14,16 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <assert.h>
 #include <elf.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
+
+#include <shared/util.h>
 
 #include "libkmod.h"
 #include "libkmod-internal.h"
@@ -44,12 +45,6 @@ struct kmod_modversion64 {
 	uint64_t crc;
 	char name[64 - sizeof(uint64_t)];
 };
-
-#ifdef WORDS_BIGENDIAN
-static const enum kmod_elf_class native_endianess = KMOD_ELF_MSB;
-#else
-static const enum kmod_elf_class native_endianess = KMOD_ELF_LSB;
-#endif
 
 struct kmod_elf {
 	const uint8_t *memory;
@@ -223,7 +218,7 @@ static inline const void *elf_get_section_header(const struct kmod_elf *elf, uin
 		return NULL;
 	}
 	return elf_get_mem(elf, elf->header.section.offset +
-			   idx * elf->header.section.entry_size);
+			   (uint64_t)(idx * elf->header.section.entry_size));
 }
 
 static inline int elf_get_section_info(const struct kmod_elf *elf, uint16_t idx, uint64_t *offset, uint64_t *size, uint32_t *nameoff)
@@ -255,8 +250,8 @@ static inline int elf_get_section_info(const struct kmod_elf *elf, uint16_t idx,
 	}
 #undef READV
 
-	min_size = *offset + *size;
-	if (min_size > elf->size) {
+	if (addu64_overflow(*offset, *size, &min_size)
+	    || min_size > elf->size) {
 		ELFDBG(elf, "out-of-bounds: %"PRIu64" >= %"PRIu64" (ELF size)\n",
 		       min_size, elf->size);
 		return -EINVAL;
@@ -277,7 +272,8 @@ static const char *elf_get_strings_section(const struct kmod_elf *elf, uint64_t 
 struct kmod_elf *kmod_elf_new(const void *memory, off_t size)
 {
 	struct kmod_elf *elf;
-	size_t hdr_size, shdr_size, min_size;
+	uint64_t min_size;
+	size_t shdrs_size, shdr_size;
 	int class;
 
 	assert_cc(sizeof(uint16_t) == sizeof(Elf32_Half));
@@ -313,12 +309,10 @@ struct kmod_elf *kmod_elf_new(const void *memory, off_t size)
 	if (elf->class & KMOD_ELF_32) {
 		const Elf32_Ehdr *hdr _unused_ = elf_get_mem(elf, 0);
 		LOAD_HEADER;
-		hdr_size = sizeof(Elf32_Ehdr);
 		shdr_size = sizeof(Elf32_Shdr);
 	} else {
 		const Elf64_Ehdr *hdr _unused_ = elf_get_mem(elf, 0);
 		LOAD_HEADER;
-		hdr_size = sizeof(Elf64_Ehdr);
 		shdr_size = sizeof(Elf64_Shdr);
 	}
 #undef LOAD_HEADER
@@ -335,8 +329,9 @@ struct kmod_elf *kmod_elf_new(const void *memory, off_t size)
 		       elf->header.section.entry_size, shdr_size);
 		goto invalid;
 	}
-	min_size = hdr_size + shdr_size * elf->header.section.count;
-	if (min_size >= elf->size) {
+	shdrs_size = shdr_size * elf->header.section.count;
+	if (addu64_overflow(shdrs_size, elf->header.section.offset, &min_size)
+	    || min_size > elf->size) {
 		ELFDBG(elf, "file is too short to hold sections\n");
 		goto invalid;
 	}

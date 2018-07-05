@@ -14,8 +14,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #pragma once
@@ -52,6 +51,7 @@ void kmod_set_log_priority(struct kmod_ctx *ctx, int priority);
 void *kmod_get_userdata(const struct kmod_ctx *ctx);
 void kmod_set_userdata(struct kmod_ctx *ctx, const void *userdata);
 
+const char *kmod_get_dirname(const struct kmod_ctx *ctx);
 
 /*
  * Management of libkmod's resources

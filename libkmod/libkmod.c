@@ -14,23 +14,25 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <stdarg.h>
-#include <limits.h>
-#include <unistd.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fnmatch.h>
+#include <limits.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <sys/utsname.h>
+#include <unistd.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
+
+#include <shared/hash.h>
+#include <shared/util.h>
 
 #include "libkmod.h"
 #include "libkmod-internal.h"
@@ -144,7 +146,15 @@ static void log_filep(void *data,
 	vfprintf(fp, format, args);
 }
 
-const char *kmod_get_dirname(const struct kmod_ctx *ctx)
+
+/**
+ * kmod_get_dirname:
+ * @ctx: kmod library context
+ *
+ * Retrieve the absolute path used for linux modules in this context. The path
+ * is computed from the arguments to kmod_new().
+ */
+KMOD_EXPORT const char *kmod_get_dirname(const struct kmod_ctx *ctx)
 {
 	return ctx->dirname;
 }
@@ -481,13 +491,9 @@ int kmod_lookup_alias_from_aliases_file(struct kmod_ctx *ctx, const char *name,
 								name, list);
 }
 
-int kmod_lookup_alias_from_builtin_file(struct kmod_ctx *ctx, const char *name,
-						struct kmod_list **list)
+static char *lookup_builtin_file(struct kmod_ctx *ctx, const char *name)
 {
-	char *line = NULL;
-	int err = 0;
-
-	assert(*list == NULL);
+	char *line;
 
 	if (ctx->indexes[KMOD_INDEX_MODULES_BUILTIN]) {
 		DBG(ctx, "use mmaped index '%s' modname=%s\n",
@@ -506,13 +512,25 @@ int kmod_lookup_alias_from_builtin_file(struct kmod_ctx *ctx, const char *name,
 		idx = index_file_open(fn);
 		if (idx == NULL) {
 			DBG(ctx, "could not open builtin file '%s'\n", fn);
-			goto finish;
+			return NULL;
 		}
 
 		line = index_search(idx, name);
 		index_file_close(idx);
 	}
 
+	return line;
+}
+
+int kmod_lookup_alias_from_builtin_file(struct kmod_ctx *ctx, const char *name,
+						struct kmod_list **list)
+{
+	char *line;
+	int err = 0;
+
+	assert(*list == NULL);
+
+	line = lookup_builtin_file(ctx, name);
 	if (line != NULL) {
 		struct kmod_module *mod;
 
@@ -523,6 +541,8 @@ int kmod_lookup_alias_from_builtin_file(struct kmod_ctx *ctx, const char *name,
 			goto finish;
 		}
 
+		/* already mark it as builtin since it's being created from
+		 * this index */
 		kmod_module_set_builtin(mod, true);
 		*list = kmod_list_append(*list, mod);
 		if (*list == NULL)
@@ -532,6 +552,15 @@ int kmod_lookup_alias_from_builtin_file(struct kmod_ctx *ctx, const char *name,
 finish:
 	free(line);
 	return err;
+}
+
+bool kmod_lookup_alias_is_builtin(struct kmod_ctx *ctx, const char *name)
+{
+	_cleanup_free_ char *line;
+
+	line = lookup_builtin_file(ctx, name);
+
+	return line != NULL;
 }
 
 char *kmod_search_moddep(struct kmod_ctx *ctx, const char *name)

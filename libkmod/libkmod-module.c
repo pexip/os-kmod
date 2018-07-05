@@ -14,32 +14,32 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
 #include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fnmatch.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/types.h>
 #include <sys/wait.h>
-#include <fnmatch.h>
-
 #ifdef HAVE_LINUX_MODULE_H
 #include <linux/module.h>
 #endif
+
+#include <shared/util.h>
 
 #include "libkmod.h"
 #include "libkmod-internal.h"
@@ -48,6 +48,12 @@
  * SECTION:libkmod-module
  * @short_description: operate on kernel modules
  */
+
+enum kmod_module_builtin {
+    KMOD_MODULE_BUILTIN_UNKNOWN,
+    KMOD_MODULE_BUILTIN_NO,
+    KMOD_MODULE_BUILTIN_YES,
+};
 
 /**
  * kmod_module:
@@ -75,6 +81,13 @@ struct kmod_module {
 	} init;
 
 	/*
+	 * mark if module is builtin, i.e. it's present on modules.builtin
+	 * file. This is set as soon as it is needed or as soon as we know
+	 * about it, i.e. the module was created from builtin lookup.
+	 */
+	enum kmod_module_builtin builtin;
+
+	/*
 	 * private field used by kmod_module_get_probe_list() to detect
 	 * dependency loops
 	 */
@@ -92,13 +105,6 @@ struct kmod_module {
 	 * is a softdep only
 	 */
 	bool required : 1;
-
-	/*
-	 * if module was created by searching the modules.builtin file, this
-	 * is set. There's nothing much useful one can do with such a
-	 * "module", except knowing it's builtin.
-	 */
-	bool builtin : 1;
 };
 
 static inline const char *path_join(const char *path, size_t prefixlen,
@@ -170,7 +176,7 @@ int kmod_module_parse_depline(struct kmod_module *mod, char *line)
 	p++;
 	for (p = strtok_r(p, " \t", &saveptr); p != NULL;
 					p = strtok_r(NULL, " \t", &saveptr)) {
-		struct kmod_module *depmod;
+		struct kmod_module *depmod = NULL;
 		const char *path;
 
 		path = path_join(p, dirnamelen, buf);
@@ -212,7 +218,8 @@ void kmod_module_set_visited(struct kmod_module *mod, bool visited)
 
 void kmod_module_set_builtin(struct kmod_module *mod, bool builtin)
 {
-	mod->builtin = builtin;
+	mod->builtin =
+		builtin ? KMOD_MODULE_BUILTIN_YES : KMOD_MODULE_BUILTIN_NO;
 }
 
 void kmod_module_set_required(struct kmod_module *mod, bool required)
@@ -220,6 +227,15 @@ void kmod_module_set_required(struct kmod_module *mod, bool required)
 	mod->required = required;
 }
 
+bool kmod_module_is_builtin(struct kmod_module *mod)
+{
+	if (mod->builtin == KMOD_MODULE_BUILTIN_UNKNOWN) {
+		kmod_module_set_builtin(mod,
+					kmod_lookup_alias_is_builtin(mod->ctx, mod->name));
+	}
+
+	return mod->builtin == KMOD_MODULE_BUILTIN_YES;
+}
 /*
  * Memory layout with alias:
  *
@@ -814,7 +830,7 @@ KMOD_EXPORT int kmod_module_insert_module(struct kmod_module *mod,
 	path = kmod_module_get_path(mod);
 	if (path == NULL) {
 		ERR(mod->ctx, "could not find module by name='%s'\n", mod->name);
-		return -ENOSYS;
+		return -ENOENT;
 	}
 
 	mod->file = kmod_file_open(mod->ctx, path);
@@ -924,7 +940,8 @@ KMOD_EXPORT int kmod_module_apply_filter(const struct kmod_ctx *ctx,
 				module_is_blacklisted(mod))
 			continue;
 
-		if ((filter_type & KMOD_FILTER_BUILTIN) && mod->builtin)
+		if ((filter_type & KMOD_FILTER_BUILTIN)
+		    && kmod_module_is_builtin(mod))
 			continue;
 
 		node = kmod_list_append(*output, mod);
@@ -1643,13 +1660,14 @@ KMOD_EXPORT int kmod_module_new_from_loaded(struct kmod_ctx *ctx,
 		struct kmod_module *m;
 		struct kmod_list *node;
 		int err;
+		size_t len = strlen(line);
 		char *saveptr, *name = strtok_r(line, " \t", &saveptr);
 
 		err = kmod_module_new_from_name(ctx, name, &m);
 		if (err < 0) {
 			ERR(ctx, "could not get module from name '%s': %s\n",
 				name, strerror(-err));
-			continue;
+			goto eat_line;
 		}
 
 		node = kmod_list_append(l, m);
@@ -1659,6 +1677,9 @@ KMOD_EXPORT int kmod_module_new_from_loaded(struct kmod_ctx *ctx,
 			ERR(ctx, "out of memory\n");
 			kmod_module_unref(m);
 		}
+eat_line:
+		while (line[len - 1] != '\n' && fgets(line, sizeof(line), fp))
+			len = strlen(line);
 	}
 
 	fclose(fp);
@@ -1713,7 +1734,8 @@ KMOD_EXPORT int kmod_module_get_initstate(const struct kmod_module *mod)
 	if (mod == NULL)
 		return -ENOENT;
 
-	if (mod->builtin)
+	/* remove const: this can only change internal state */
+	if (kmod_module_is_builtin((struct kmod_module *)mod))
 		return KMOD_MODULE_BUILTIN;
 
 	pathlen = snprintf(path, sizeof(path),
@@ -1729,7 +1751,7 @@ KMOD_EXPORT int kmod_module_get_initstate(const struct kmod_module *mod)
 			struct stat st;
 			path[pathlen - (sizeof("/initstate") - 1)] = '\0';
 			if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
-				return KMOD_MODULE_BUILTIN;
+				return KMOD_MODULE_COMING;
 		}
 
 		DBG(mod->ctx, "could not open '%s': %s\n",
@@ -1783,7 +1805,7 @@ KMOD_EXPORT long kmod_module_get_size(const struct kmod_module *mod)
 	 * loaded.
 	 */
 	snprintf(line, sizeof(line), "/sys/module/%s", mod->name);
-	dfd = open(line, O_RDONLY);
+	dfd = open(line, O_RDONLY|O_CLOEXEC);
 	if (dfd < 0)
 		return -errno;
 
@@ -1807,12 +1829,13 @@ KMOD_EXPORT long kmod_module_get_size(const struct kmod_module *mod)
 	}
 
 	while (fgets(line, sizeof(line), fp)) {
+		size_t len = strlen(line);
 		char *saveptr, *endptr, *tok = strtok_r(line, " \t", &saveptr);
 		long value;
 
 		lineno++;
 		if (tok == NULL || !streq(tok, mod->name))
-			continue;
+			goto eat_line;
 
 		tok = strtok_r(NULL, " \t", &saveptr);
 		if (tok == NULL) {
@@ -1830,6 +1853,9 @@ KMOD_EXPORT long kmod_module_get_size(const struct kmod_module *mod)
 
 		size = value;
 		break;
+eat_line:
+		while (line[len - 1] != '\n' && fgets(line, sizeof(line), fp))
+			len = strlen(line);
 	}
 	fclose(fp);
 
@@ -1845,7 +1871,7 @@ done:
  * Get the ref count of this @mod, as returned by Linux Kernel, by reading
  * /sys filesystem.
  *
- * Returns: 0 on success or < 0 on failure.
+ * Returns: the reference count on success or < 0 on failure.
  */
 KMOD_EXPORT int kmod_module_get_refcnt(const struct kmod_module *mod)
 {
@@ -2229,28 +2255,42 @@ KMOD_EXPORT int kmod_module_get_info(const struct kmod_module *mod, struct kmod_
 		struct kmod_list *n;
 		char *key_hex;
 
+		n = kmod_module_info_append(list, "signature", strlen("sig_id"),
+				sig_info.id_type, strlen(sig_info.id_type));
+		if (n == NULL)
+			goto list_error;
+		count++;
+
 		n = kmod_module_info_append(list, "signer", strlen("signer"),
 				sig_info.signer, sig_info.signer_len);
 		if (n == NULL)
 			goto list_error;
 		count++;
 
-		/* Display the key id as 01:12:DE:AD:BE:EF:... */
-		key_hex = malloc(sig_info.key_id_len * 3);
-		if (key_hex == NULL)
-			goto list_error;
-		for (i = 0; i < (int)sig_info.key_id_len; i++) {
-			sprintf(key_hex + i * 3, "%02X",
-					(unsigned char)sig_info.key_id[i]);
-			if (i < (int)sig_info.key_id_len - 1)
-				key_hex[i * 3 + 2] = ':';
+		if (sig_info.key_id_len) {
+			/* Display the key id as 01:12:DE:AD:BE:EF:... */
+			key_hex = malloc(sig_info.key_id_len * 3);
+			if (key_hex == NULL)
+				goto list_error;
+			for (i = 0; i < (int)sig_info.key_id_len; i++) {
+				sprintf(key_hex + i * 3, "%02X",
+						(unsigned char)sig_info.key_id[i]);
+				if (i < (int)sig_info.key_id_len - 1)
+					key_hex[i * 3 + 2] = ':';
+			}
+			n = kmod_module_info_append(list, "sig_key", strlen("sig_key"),
+					key_hex, sig_info.key_id_len * 3 - 1);
+			free(key_hex);
+			if (n == NULL)
+				goto list_error;
+			count++;
+		} else {
+			n = kmod_module_info_append(list, "sig_key", strlen("sig_key"),
+					NULL, 0);
+			if (n == NULL)
+				goto list_error;
+			count++;
 		}
-		n = kmod_module_info_append(list, "sig_key", strlen("sig_key"),
-				key_hex, sig_info.key_id_len * 3 - 1);
-		free(key_hex);
-		if (n == NULL)
-			goto list_error;
-		count++;
 
 		n = kmod_module_info_append(list,
 				"sig_hashalgo", strlen("sig_hashalgo"),
@@ -2260,7 +2300,7 @@ KMOD_EXPORT int kmod_module_get_info(const struct kmod_module *mod, struct kmod_
 		count++;
 
 		/*
-		 * Omit sig_info.id_type and sig_info.algo for now, as these
+		 * Omit sig_info.algo for now, as these
 		 * are currently constant.
 		 */
 	}

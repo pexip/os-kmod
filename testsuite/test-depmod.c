@@ -12,21 +12,20 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <inttypes.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
-#include <errno.h>
-#include <unistd.h>
-#include <inttypes.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "testsuite.h"
 
-#define MODULES_ORDER_UNAME "3.5.4-1-ARCH"
+#define MODULES_ORDER_UNAME "4.4.4"
 #define MODULES_ORDER_ROOTFS TESTSUITE_ROOTFS "test-depmod/modules-order-compressed"
 #define MODULES_ORDER_LIB_MODULES MODULES_ORDER_ROOTFS "/lib/modules/" MODULES_ORDER_UNAME
 static noreturn int depmod_modules_order_for_compressed(const struct test *t)
@@ -40,7 +39,9 @@ static noreturn int depmod_modules_order_for_compressed(const struct test *t)
 	test_spawn_prog(progname, args);
 	exit(EXIT_FAILURE);
 }
-static DEFINE_TEST(depmod_modules_order_for_compressed,
+
+#ifdef ENABLE_ZLIB
+DEFINE_TEST(depmod_modules_order_for_compressed,
 	.description = "check if depmod let aliases in right order when using compressed modules",
 	.config = {
 		[TC_UNAME_R] = MODULES_ORDER_UNAME,
@@ -53,6 +54,7 @@ static DEFINE_TEST(depmod_modules_order_for_compressed,
 			{ }
 		},
 	});
+#endif
 
 #define SEARCH_ORDER_SIMPLE_ROOTFS TESTSUITE_ROOTFS "test-depmod/search-order-simple"
 static noreturn int depmod_search_order_simple(const struct test *t)
@@ -66,7 +68,7 @@ static noreturn int depmod_search_order_simple(const struct test *t)
 	test_spawn_prog(progname, args);
 	exit(EXIT_FAILURE);
 }
-static DEFINE_TEST(depmod_search_order_simple,
+DEFINE_TEST(depmod_search_order_simple,
 	.description = "check if depmod honor search order in config",
 	.config = {
 		[TC_UNAME_R] = "4.4.4",
@@ -92,7 +94,7 @@ static noreturn int depmod_search_order_same_prefix(const struct test *t)
 	test_spawn_prog(progname, args);
 	exit(EXIT_FAILURE);
 }
-static DEFINE_TEST(depmod_search_order_same_prefix,
+DEFINE_TEST(depmod_search_order_same_prefix,
 	.description = "check if depmod honor search order in config with same prefix",
 	.config = {
 		[TC_UNAME_R] = "4.4.4",
@@ -118,7 +120,7 @@ static noreturn int depmod_detect_loop(const struct test *t)
 	test_spawn_prog(progname, args);
 	exit(EXIT_FAILURE);
 }
-static DEFINE_TEST(depmod_detect_loop,
+DEFINE_TEST(depmod_detect_loop,
 	.description = "check if depmod detects module loops correctly",
 	.config = {
 		[TC_UNAME_R] = "4.4.4",
@@ -129,15 +131,4 @@ static DEFINE_TEST(depmod_detect_loop,
 		.err = DETECT_LOOP_ROOTFS "/correct.txt",
 	});
 
-
-static const struct test *tests[] = {
-#ifdef ENABLE_ZLIB
-	&sdepmod_modules_order_for_compressed,
-#endif
-	&sdepmod_search_order_simple,
-	&sdepmod_search_order_same_prefix,
-	&sdepmod_detect_loop,
-	NULL,
-};
-
-TESTSUITE_MAIN(tests);
+TESTSUITE_MAIN();

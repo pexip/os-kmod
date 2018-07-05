@@ -12,18 +12,18 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <inttypes.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
-#include <errno.h>
-#include <unistd.h>
-#include <inttypes.h>
 #include <string.h>
-#include <libkmod.h>
+#include <unistd.h>
+
+#include <libkmod/libkmod.h>
 
 #include "testsuite.h"
 
@@ -78,7 +78,7 @@ static int loaded_1(const struct test *t)
 
 	return EXIT_SUCCESS;
 }
-static DEFINE_TEST(loaded_1,
+DEFINE_TEST(loaded_1,
 	.description = "check if list of module is created",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-loaded/",
@@ -88,9 +88,4 @@ static DEFINE_TEST(loaded_1,
 		.out = TESTSUITE_ROOTFS "test-loaded/correct.txt",
 	});
 
-static const struct test *tests[] = {
-	&sloaded_1,
-	NULL,
-};
-
-TESTSUITE_MAIN(tests);
+TESTSUITE_MAIN();
