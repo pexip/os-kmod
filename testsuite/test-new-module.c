@@ -12,18 +12,18 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <inttypes.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
-#include <errno.h>
-#include <unistd.h>
-#include <inttypes.h>
 #include <string.h>
-#include <libkmod.h>
+#include <unistd.h>
+
+#include <libkmod/libkmod.h>
 
 #include "testsuite.h"
 
@@ -60,7 +60,7 @@ static int from_name(const struct test *t)
 
 	return EXIT_SUCCESS;
 }
-static DEFINE_TEST(from_name,
+DEFINE_TEST(from_name,
 	.description = "check if module names are parsed correctly",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-new-module/from_name/",
@@ -105,7 +105,7 @@ static int from_alias(const struct test *t)
 
 	return EXIT_SUCCESS;
 }
-static DEFINE_TEST(from_alias,
+DEFINE_TEST(from_alias,
 	.description = "check if aliases are parsed correctly",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-new-module/from_alias/",
@@ -115,10 +115,4 @@ static DEFINE_TEST(from_alias,
 		.out = TESTSUITE_ROOTFS "test-new-module/from_alias/correct.txt",
 	});
 
-static const struct test *tests[] = {
-	&sfrom_name,
-	&sfrom_alias,
-	NULL,
-};
-
-TESTSUITE_MAIN(tests);
+TESTSUITE_MAIN();

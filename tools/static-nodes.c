@@ -19,18 +19,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <getopt.h>
+#include <limits.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
-#include <getopt.h>
-#include <errno.h>
-#include <unistd.h>
 #include <string.h>
-#include <limits.h>
-#include <sys/utsname.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "libkmod-util.h"
+#include <sys/utsname.h>
+
+#include <shared/util.h>
 
 #include "kmod.h"
 
@@ -95,7 +96,7 @@ static int write_tmpfiles(FILE *out, char modname[], char devname[], char type, 
 			return EXIT_FAILURE;
 	}
 
-	ret = fprintf(out, "%c /dev/%s 0600 - - - %u:%u\n",
+	ret = fprintf(out, "%c! /dev/%s 0600 - - - %u:%u\n",
 		      type, devname, maj, min);
 	if (ret < 0)
 		return EXIT_FAILURE;

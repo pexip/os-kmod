@@ -12,21 +12,23 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <string.h>
 #include <dirent.h>
 #include <errno.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
-#include <libkmod.h>
+
+#include <shared/util.h>
+
+#include <libkmod/libkmod.h>
 
 #include "testsuite.h"
 
@@ -40,7 +42,7 @@ static noreturn int testsuite_uname(const struct test *t)
 	if (err < 0)
 		exit(EXIT_FAILURE);
 
-	if (strcmp(u.release, TEST_UNAME) != 0) {
+	if (!streq(u.release, TEST_UNAME)) {
 		char *ldpreload = getenv("LD_PRELOAD");
 		ERR("u.release=%s should be %s\n", u.release, TEST_UNAME);
 		ERR("LD_PRELOAD=%s\n", ldpreload);
@@ -49,7 +51,7 @@ static noreturn int testsuite_uname(const struct test *t)
 
 	exit(EXIT_SUCCESS);
 }
-static DEFINE_TEST(testsuite_uname,
+DEFINE_TEST(testsuite_uname,
 	.description = "test if trap to uname() works",
 	.config = {
 		[TC_UNAME_R] = TEST_UNAME,
@@ -70,12 +72,12 @@ static int testsuite_rootfs_fopen(const struct test *t)
 	if (n != 1)
 		return EXIT_FAILURE;
 
-	if (strcmp(s, "kmod-test-chroot-works") != 0)
+	if (!streq(s, "kmod-test-chroot-works"))
 		return EXIT_FAILURE;
 
 	return EXIT_SUCCESS;
 }
-static DEFINE_TEST(testsuite_rootfs_fopen,
+DEFINE_TEST(testsuite_rootfs_fopen,
 	.description = "test if rootfs works - fopen()",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
@@ -103,12 +105,12 @@ static int testsuite_rootfs_open(const struct test *t)
 
 	buf[done] = '\0';
 
-	if (strcmp(buf, "kmod-test-chroot-works\n") != 0)
+	if (!streq(buf, "kmod-test-chroot-works\n"))
 		return EXIT_FAILURE;
 
 	return EXIT_SUCCESS;
 }
-static DEFINE_TEST(testsuite_rootfs_open,
+DEFINE_TEST(testsuite_rootfs_open,
 	.description = "test if rootfs works - open()",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
@@ -131,7 +133,7 @@ static int testsuite_rootfs_stat_access(const struct test *t)
 
 	return EXIT_SUCCESS;
 }
-static DEFINE_TEST(testsuite_rootfs_stat_access,
+DEFINE_TEST(testsuite_rootfs_stat_access,
 	.description = "test if rootfs works - stat() and access()",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
@@ -151,20 +153,11 @@ static int testsuite_rootfs_opendir(const struct test *t)
 	closedir(d);
 	return EXIT_SUCCESS;
 }
-static DEFINE_TEST(testsuite_rootfs_opendir,
+DEFINE_TEST(testsuite_rootfs_opendir,
 	.description = "test if rootfs works - opendir()",
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
 	},
 	.need_spawn = true);
 
-static const struct test *tests[] = {
-	&stestsuite_uname,
-	&stestsuite_rootfs_fopen,
-	&stestsuite_rootfs_open,
-	&stestsuite_rootfs_stat_access,
-	&stestsuite_rootfs_opendir,
-	NULL,
-};
-
-TESTSUITE_MAIN(tests);
+TESTSUITE_MAIN();

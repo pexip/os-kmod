@@ -12,22 +12,24 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <inttypes.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
-#include <errno.h>
-#include <unistd.h>
-#include <inttypes.h>
 #include <string.h>
-#include <libkmod.h>
+#include <unistd.h>
+
+#include <shared/util.h>
+
+#include <libkmod/libkmod.h>
 
 /* good luck bulding a kmod_list outside of the library... makes this blacklist
  * function rather pointless */
-#include <libkmod-internal.h>
+#include <libkmod/libkmod-internal.h>
 
 /* FIXME: hack, change name so we don't clash */
 #undef ERR
@@ -70,7 +72,7 @@ static int blacklist_1(const struct test *t)
 		const char *modname;
 		mod = kmod_module_get_module(l);
 		modname = kmod_module_get_name(mod);
-		if (strcmp("pcspkr", modname) == 0 || strcmp("floppy", modname) == 0)
+		if (streq("pcspkr", modname) || streq("floppy", modname))
 			goto fail;
 		len++;
 		kmod_module_unref(mod);
@@ -91,19 +93,13 @@ fail_lookup:
 	kmod_unref(ctx);
 	return EXIT_FAILURE;
 }
-static const struct test sblacklist_1 = {
-	.name = "blacklist_1",
+
+DEFINE_TEST(blacklist_1,
 	.description = "check if modules are correctly blacklisted",
-	.func = blacklist_1,
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-blacklist/",
 	},
 	.need_spawn = true,
-};
+);
 
-static const struct test *tests[] = {
-	&sblacklist_1,
-	NULL,
-};
-
-TESTSUITE_MAIN(tests);
+TESTSUITE_MAIN();

@@ -12,18 +12,19 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
 
-#include <libkmod-hash.h>
+#include <shared/hash.h>
+#include <shared/util.h>
+
 #include "testsuite.h"
 
 static int freecount;
@@ -40,7 +41,7 @@ static int test_hash_new(const struct test *t)
 	hash_free(h);
 	return 0;
 }
-static DEFINE_TEST(test_hash_new,
+DEFINE_TEST(test_hash_new,
 		.description = "test hash_new");
 
 
@@ -59,7 +60,7 @@ static int test_hash_get_count(const struct test *t)
 	hash_free(h);
 	return 0;
 }
-static DEFINE_TEST(test_hash_get_count,
+DEFINE_TEST(test_hash_get_count,
 		.description = "test hash_add / hash_get_count");
 
 
@@ -82,14 +83,14 @@ static int test_hash_replace(const struct test *t)
 	assert_return(hash_get_count(h) == 3, EXIT_FAILURE);
 
 	v = hash_find(h, "k1");
-	assert_return(strcmp(v, v4) == 0, EXIT_FAILURE);
+	assert_return(streq(v, v4), EXIT_FAILURE);
 
 	assert_return(freecount == 1, EXIT_FAILURE);
 
 	hash_free(h);
 	return 0;
 }
-static DEFINE_TEST(test_hash_replace,
+DEFINE_TEST(test_hash_replace,
 		.description = "test hash_add replacing existing value");
 
 
@@ -113,14 +114,14 @@ static int test_hash_replace_failing(const struct test *t)
 	assert_return(hash_get_count(h) == 3, EXIT_FAILURE);
 
 	v = hash_find(h, "k1");
-	assert_return(strcmp(v, v1) == 0, EXIT_FAILURE);
+	assert_return(streq(v, v1), EXIT_FAILURE);
 
 	assert_return(freecount == 0, EXIT_FAILURE);
 
 	hash_free(h);
 	return 0;
 }
-static DEFINE_TEST(test_hash_replace_failing,
+DEFINE_TEST(test_hash_replace_failing,
 		.description = "test hash_add_unique failing to replace existing value");
 
 
@@ -154,7 +155,7 @@ static int test_hash_iter(const struct test *t)
 	hash_free(h2);
 	return 0;
 }
-static DEFINE_TEST(test_hash_iter,
+DEFINE_TEST(test_hash_iter,
 		.description = "test hash_iter");
 
 
@@ -190,7 +191,7 @@ static int test_hash_iter_after_del(const struct test *t)
 	hash_free(h2);
 	return 0;
 }
-static DEFINE_TEST(test_hash_iter_after_del,
+DEFINE_TEST(test_hash_iter_after_del,
 		.description = "test hash_iter, after deleting element");
 
 
@@ -216,18 +217,66 @@ static int test_hash_free(const struct test *t)
 
 	return 0;
 }
-static DEFINE_TEST(test_hash_free,
+DEFINE_TEST(test_hash_free,
 		.description = "test hash_free calling free function for all values");
-static const struct test *tests[] = {
-	&stest_hash_new,
-	&stest_hash_get_count,
-	&stest_hash_replace,
-	&stest_hash_replace_failing,
-	&stest_hash_iter,
-	&stest_hash_iter_after_del,
-	&stest_hash_free,
-	NULL,
-};
 
 
-TESTSUITE_MAIN(tests);
+static int test_hash_add_unique(const struct test *t)
+{
+	const char *k[] = { "k1", "k2", "k3", "k4", "k5" };
+	const char *v[] = { "v1", "v2", "v3", "v4", "v5" };
+	unsigned int i, j, N;
+
+	N = ARRAY_SIZE(k);
+	for (i = 0; i < N; i++) {
+		/* With N - 1 buckets, there'll be a bucket with more than one key. */
+		struct hash *h = hash_new(N - 1, NULL);
+
+		/* Add the keys in different orders. */
+		for (j = 0; j < N; j++) {
+			unsigned int idx = (j + i) % N;
+			hash_add_unique(h, k[idx], v[idx]);
+		}
+
+		assert_return(hash_get_count(h) == N, EXIT_FAILURE);
+		hash_free(h);
+	}
+	return 0;
+}
+DEFINE_TEST(test_hash_add_unique,
+		.description = "test hash_add_unique with different key orders")
+
+
+static int test_hash_massive_add_del(const struct test *t)
+{
+	char buf[1024 * 8];
+	char *k;
+	struct hash *h;
+	unsigned int i, N = 1024;
+
+	h = hash_new(8, NULL);
+
+	k = &buf[0];
+	for (i = 0; i < N; i++) {
+		snprintf(k, 8, "k%d", i);
+		hash_add(h, k, k);
+		k += 8;
+	}
+
+	assert_return(hash_get_count(h) == N, EXIT_FAILURE);
+
+	k = &buf[0];
+	for (i = 0; i < N; i++) {
+		hash_del(h, k);
+		k += 8;
+	}
+
+	assert_return(hash_get_count(h) == 0, EXIT_FAILURE);
+
+	hash_free(h);
+	return 0;
+}
+DEFINE_TEST(test_hash_massive_add_del,
+		.description = "test multiple adds followed by multiple dels")
+
+TESTSUITE_MAIN();

@@ -12,17 +12,16 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
-#include <dirent.h>
-#include <stdio.h>
 #include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -32,7 +31,8 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
-#include "libkmod-util.h"
+#include <shared/util.h>
+
 #include "testsuite.h"
 
 static const char *ANSI_HIGHLIGHT_GREEN_ON = "\x1B[1;32m";
@@ -87,16 +87,17 @@ static void help(void)
 		printf("\t-%c, --%s\n", *itr_short, itr->name);
 }
 
-static void test_list(const struct test *tests[])
+static void test_list(const struct test *start, const struct test *stop)
 {
-	size_t i;
+	const struct test *t;
 
 	printf("Available tests:\n");
-	for (i = 0; tests[i] != NULL; i++)
-		printf("\t%s, %s\n", tests[i]->name, tests[i]->description);
+	for (t = start; t < stop; t++)
+		printf("\t%s, %s\n", t->name, t->description);
 }
 
-int test_init(int argc, char *const argv[], const struct test *tests[])
+int test_init(const struct test *start, const struct test *stop,
+	      int argc, char *const argv[])
 {
 	progname = argv[0];
 
@@ -107,7 +108,7 @@ int test_init(int argc, char *const argv[], const struct test *tests[])
 			break;
 		switch (c) {
 		case 'l':
-			test_list(tests);
+			test_list(start, stop);
 			return 0;
 		case 'h':
 			help();
@@ -132,13 +133,14 @@ int test_init(int argc, char *const argv[], const struct test *tests[])
 	return optind;
 }
 
-const struct test *test_find(const struct test *tests[], const char *name)
+const struct test *test_find(const struct test *start,
+			     const struct test *stop, const char *name)
 {
-	size_t i;
+	const struct test *t;
 
-	for (i = 0; tests[i] != NULL; i++) {
-		if (strcmp(tests[i]->name, name) == 0)
-			return tests[i];
+	for (t = start; t < stop; t++) {
+		if (streq(t->name, name))
+			return t;
 	}
 
 	return NULL;
@@ -270,11 +272,30 @@ static inline int test_run_child(const struct test *t, int fdout[2],
 		return test_run_spawned(t);
 }
 
+static int check_activity(int fd, bool activity,  const char *path,
+			  const char *stream)
+{
+	struct stat st;
+
+	/* not monitoring or monitoring and it has activity */
+	if (fd < 0 || activity)
+		return 0;
+
+	/* monitoring, there was no activity and size matches */
+	if (stat(path, &st) == 0 && st.st_size == 0)
+		return 0;
+
+	ERR("Expecting output on %s, but test didn't produce any\n", stream);
+
+	return -1;
+}
+
 static inline bool test_run_parent_check_outputs(const struct test *t,
 			int fdout, int fderr, int fdmonitor, pid_t child)
 {
 	struct epoll_event ep_outpipe, ep_errpipe, ep_monitor;
 	int err, fd_ep, fd_matchout = -1, fd_matcherr = -1;
+	bool fd_activityout = false, fd_activityerr = false;
 	unsigned long long end_usec, start_usec;
 
 	fd_ep = epoll_create1(EPOLL_CLOEXEC);
@@ -370,11 +391,13 @@ static inline bool test_run_parent_check_outputs(const struct test *t,
 				if (r <= 0)
 					continue;
 
-				if (*fd == fdout)
+				if (*fd == fdout) {
 					fd_match = fd_matchout;
-				else if (*fd == fderr)
+					fd_activityout = true;
+				} else if (*fd == fderr) {
 					fd_match = fd_matcherr;
-				else {
+					fd_activityerr = true;
+				} else {
 					ERR("Unexpected activity on monitor pipe\n");
 					err = -EINVAL;
 					goto out;
@@ -400,9 +423,15 @@ static inline bool test_run_parent_check_outputs(const struct test *t,
 
 				buf[r] = '\0';
 				bufmatch[r] = '\0';
-				if (strcmp(buf, bufmatch) != 0) {
+
+				if (t->print_outputs)
+					printf("%s: %s\n",
+					       fd_match == fd_matchout ? "STDOUT:" : "STDERR:",
+					       buf);
+
+				if (!streq(buf, bufmatch)) {
 					ERR("Outputs do not match on %s:\n",
-						fd_match == fd_matchout ? "stdout" : "stderr");
+						fd_match == fd_matchout ? "STDOUT" : "STDERR");
 					ERR("correct:\n%s\n", bufmatch);
 					ERR("wrong:\n%s\n", buf);
 					err = -1;
@@ -418,6 +447,9 @@ static inline bool test_run_parent_check_outputs(const struct test *t,
 			}
 		}
 	}
+
+	err = check_activity(fd_matchout, fd_activityout, t->output.out, "stdout");
+	err |= check_activity(fd_matcherr, fd_activityerr, t->output.err, "stderr");
 
 	if (err == 0 && fdmonitor >= 0) {
 		err = -EINVAL;

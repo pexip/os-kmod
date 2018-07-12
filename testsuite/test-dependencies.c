@@ -12,39 +12,42 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
+#include <inttypes.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
-#include <errno.h>
-#include <unistd.h>
-#include <inttypes.h>
 #include <string.h>
-#include <libkmod.h>
+#include <unistd.h>
+
+#include <shared/util.h>
+
+#include <libkmod/libkmod.h>
 
 #include "testsuite.h"
+
 #define TEST_UNAME "4.0.20-kmod"
 
-static int test_dependencies(const struct test *t)
+static noreturn int test_dependencies(const struct test *t)
 {
 	struct kmod_ctx *ctx;
-	struct kmod_module *mod;
+	struct kmod_module *mod = NULL;
 	struct kmod_list *list, *l;
 	int err;
 	size_t len = 0;
-	int crc16 = 0, mbcache = 0, jbd2 = 0;
+	int fooa = 0, foob = 0, fooc = 0;
 
 	ctx = kmod_new(NULL, NULL);
 	if (ctx == NULL)
-		return EXIT_FAILURE;
+		exit(EXIT_FAILURE);
 
-	err = kmod_module_new_from_name(ctx, "ext4", &mod);
-	if (err < 0) {
+	err = kmod_module_new_from_name(ctx, "mod-foo", &mod);
+	if (err < 0 || mod == NULL) {
 		kmod_unref(ctx);
-		return EXIT_FAILURE;
+		exit(EXIT_FAILURE);
 	}
 
 	list = kmod_module_get_dependencies(mod);
@@ -53,41 +56,34 @@ static int test_dependencies(const struct test *t)
 		struct kmod_module *m = kmod_module_get_module(l);
 		const char *name = kmod_module_get_name(m);
 
-		if (strcmp(name, "crc16") == 0)
-			crc16 = 1;
-		if (strcmp(name, "mbcache") == 0)
-			mbcache = 1;
-		else if (strcmp(name, "jbd2") == 0)
-			jbd2 = 1;
+		if (streq(name, "mod_foo_a"))
+			fooa = 1;
+		if (streq(name, "mod_foo_b"))
+			foob = 1;
+		else if (streq(name, "mod_foo_c"))
+			fooc = 1;
 
+		fprintf(stderr, "name=%s", name);
 		kmod_module_unref(m);
 		len++;
 	}
 
-	/* crc16, mbcache, jbd2 */
-	if (len != 3 || !crc16 || !mbcache || !jbd2)
-		return EXIT_FAILURE;
+	/* fooa, foob, fooc */
+	if (len != 3 || !fooa || !foob || !fooc)
+		exit(EXIT_FAILURE);
 
 	kmod_module_unref_list(list);
 	kmod_module_unref(mod);
 	kmod_unref(ctx);
 
-	return EXIT_SUCCESS;
+	exit(EXIT_SUCCESS);
 }
-static const struct test stest_dependencies = {
-	.name = "test_dependencies",
+DEFINE_TEST(test_dependencies,
 	.description = "test if kmod_module_get_dependencies works",
-	.func = test_dependencies,
 	.config = {
-		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-dependencies/",
 		[TC_UNAME_R] = TEST_UNAME,
+		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-dependencies/",
 	},
-	.need_spawn = true,
-};
+	.need_spawn = true);
 
-static const struct test *tests[] = {
-	&stest_dependencies,
-	NULL,
-};
-
-TESTSUITE_MAIN(tests);
+TESTSUITE_MAIN();

@@ -13,8 +13,9 @@ DKU := $(CURDIR)/debian/libkmod2-udeb
 
 CONFFLAGS = --sysconfdir=/etc --bindir=/bin
 CONFFLAGS_deb  = $(CONFFLAGS) \
-  $(shell DEB_BUILD_MAINT_OPTIONS="hardening=+pie" \
+  $(shell DEB_BUILD_MAINT_OPTIONS="hardening=+bindnow" \
     dpkg-buildflags --export=configure || true) \
+  --enable-gtk-doc \
   --libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
   --with-rootlibdir=/lib/$(DEB_HOST_MULTIARCH) \
   --enable-debug
@@ -24,6 +25,9 @@ CONFFLAGS_udeb = $(CONFFLAGS) \
   --libdir=/lib --with-rootlibdir=/lib
 
 ##############################################################################
+SOURCE_DATE_EPOCH ?= $(shell dpkg-parsechangelog --show-field=Date | date --file=- +%s)
+export SOURCE_DATE_EPOCH
+
 DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
 
 DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
@@ -108,9 +112,7 @@ ifdef BUILD_UDEB
 	egrep -i '^[a-z]' extra/aliases.conf > $(DKU)/etc/modprobe.d/aliases.conf
 endif
 
-	#mv $D/usr/share/doc/kmod $D/usr/share/doc/libkmod2
-	dh_installdocs -pkmod -plibkmod-dev -pmodule-init-tools \
-		--link-doc=libkmod2
+	dh_installdocs -pkmod -plibkmod-dev --link-doc=libkmod2
 	dh_installdocs -pkmod --link-doc=libkmod2 README TODO
 	dh_installdocs -plibkmod2
 	cp libkmod/README $(DD)/usr/share/doc/libkmod2/README.libkmod

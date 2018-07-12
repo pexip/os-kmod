@@ -18,22 +18,23 @@
  */
 
 #include <assert.h>
+#include <errno.h>
+#include <getopt.h>
+#include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
-#include <getopt.h>
-#include <errno.h>
 #include <string.h>
-#include <sys/types.h>
+#include <unistd.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
-#include <unistd.h>
-#include <limits.h>
 
-#include "libkmod.h"
-#include "libkmod-array.h"
-#include "macro.h"
+#include <shared/array.h>
+#include <shared/macro.h>
+
+#include <libkmod/libkmod.h>
 
 #include "kmod.h"
 
@@ -454,34 +455,6 @@ static int rmmod_all(struct kmod_ctx *ctx, char **args, int nargs)
 	return err;
 }
 
-static int handle_failed_lookup(struct kmod_ctx *ctx, const char *alias)
-{
-	struct kmod_module *mod;
-	int state, err;
-
-	DBG("lookup failed - trying to check if it's builtin\n");
-
-	err = kmod_module_new_from_name(ctx, alias, &mod);
-	if (err < 0)
-		return err;
-
-	state = kmod_module_get_initstate(mod);
-	kmod_module_unref(mod);
-
-	if (state != KMOD_MODULE_BUILTIN) {
-		LOG("Module %s not found.\n", alias);
-		return -ENOENT;
-	}
-
-	if (first_time) {
-		LOG("Module %s already in kernel (builtin).\n", alias);
-		return -ENOENT;
-	}
-
-	SHOW("builtin %s\n", alias);
-	return 0;
-}
-
 static void print_action(struct kmod_module *m, bool install,
 							const char *options)
 {
@@ -516,11 +489,12 @@ static int insmod(struct kmod_ctx *ctx, const char *alias,
 						const char *options) = NULL;
 
 	err = kmod_module_new_from_lookup(ctx, alias, &list);
-	if (err < 0)
-		return err;
 
-	if (list == NULL)
-		return handle_failed_lookup(ctx, alias);
+	if (list == NULL || err < 0) {
+		LOG("Module %s not found in directory %s\n", alias,
+			ctx ? kmod_get_dirname(ctx) : "(missing)");
+		return -ENOENT;
+	}
 
 	if (strip_modversion || force)
 		flags |= KMOD_PROBE_FORCE_MODVERSION;
@@ -849,6 +823,7 @@ static int do_modprobe(int argc, char **orig_argv)
 			break;
 		case 'V':
 			puts(PACKAGE " version " VERSION);
+			puts(KMOD_FEATURES);
 			err = 0;
 			goto done;
 		case 'h':

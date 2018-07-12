@@ -12,23 +12,24 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
-#include <errno.h>
 #include <dirent.h>
-#include <fcntl.h>
 #include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
-#include <stdlib.h>
 #include <stdarg.h>
-#include <string.h>
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#include <shared/util.h>
 
 #include "testsuite.h"
 
@@ -38,7 +39,8 @@ static size_t rootpathlen;
 
 static inline bool need_trap(const char *path)
 {
-	return path != NULL && path[0] == '/';
+	return path != NULL && path[0] == '/'
+		&& !strstartswith(path, ABS_TOP_BUILDDIR);
 }
 
 static const char *trap_path(const char *path, char buf[PATH_MAX * 2])

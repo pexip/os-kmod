@@ -5,8 +5,9 @@
 #include <syslog.h>
 #include <limits.h>
 
-#include "missing.h"
-#include "macro.h"
+#include <shared/macro.h>
+#include <shared/missing.h>
+
 #include "libkmod.h"
 
 static _always_inline_ _printf_format_(2, 3) void
@@ -84,13 +85,12 @@ struct kmod_list *kmod_list_append_list(struct kmod_list *list1, struct kmod_lis
 		container_of(list_entry->node.prev, struct kmod_list, node)))
 
 /* libkmod.c */
-const char *kmod_get_dirname(const struct kmod_ctx *ctx) __attribute__((nonnull(1)));
-
 int kmod_lookup_alias_from_config(struct kmod_ctx *ctx, const char *name, struct kmod_list **list) __attribute__((nonnull(1, 2, 3)));
 int kmod_lookup_alias_from_symbols_file(struct kmod_ctx *ctx, const char *name, struct kmod_list **list) __attribute__((nonnull(1, 2, 3)));
 int kmod_lookup_alias_from_aliases_file(struct kmod_ctx *ctx, const char *name, struct kmod_list **list) __attribute__((nonnull(1, 2, 3)));
 int kmod_lookup_alias_from_moddep_file(struct kmod_ctx *ctx, const char *name, struct kmod_list **list) __attribute__((nonnull(1, 2, 3)));
 int kmod_lookup_alias_from_builtin_file(struct kmod_ctx *ctx, const char *name, struct kmod_list **list) __attribute__((nonnull(1, 2, 3)));
+bool kmod_lookup_alias_is_builtin(struct kmod_ctx *ctx, const char *name) __attribute__((nonnull(1, 2)));
 int kmod_lookup_alias_from_commands(struct kmod_ctx *ctx, const char *name, struct kmod_list **list) __attribute__((nonnull(1, 2, 3)));
 void kmod_set_modules_visited(struct kmod_ctx *ctx, bool visited) __attribute__((nonnull((1))));
 void kmod_set_modules_required(struct kmod_ctx *ctx, bool required) __attribute__((nonnull((1))));
@@ -144,10 +144,7 @@ void kmod_module_set_remove_commands(struct kmod_module *mod, const char *cmd) _
 void kmod_module_set_visited(struct kmod_module *mod, bool visited) __attribute__((nonnull(1)));
 void kmod_module_set_builtin(struct kmod_module *mod, bool builtin) __attribute__((nonnull((1))));
 void kmod_module_set_required(struct kmod_module *mod, bool required) __attribute__((nonnull(1)));
-
-/* libkmod-hash.c */
-
-#include "libkmod-hash.h"
+bool kmod_module_is_builtin(struct kmod_module *mod) __attribute__((nonnull(1)));
 
 /* libkmod-file.c */
 struct kmod_file *kmod_file_open(const struct kmod_ctx *ctx, const char *filename) _must_check_ __attribute__((nonnull(1,2)));
@@ -191,5 +188,3 @@ struct kmod_signature_info {
 	const char *algo, *hash_algo, *id_type;
 };
 bool kmod_module_signature_info(const struct kmod_file *file, struct kmod_signature_info *sig_info) _must_check_ __attribute__((nonnull(1, 2)));
-/* util functions */
-#include "libkmod-util.h"
