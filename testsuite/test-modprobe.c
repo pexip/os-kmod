@@ -95,6 +95,29 @@ DEFINE_TEST(modprobe_show_alias_to_none,
 	);
 
 
+static noreturn int modprobe_show_exports(const struct test *t)
+{
+	const char *progname = ABS_TOP_BUILDDIR "/tools/modprobe";
+	const char *const args[] = {
+		progname,
+		"--show-exports", "--quiet", "/mod-loop-a.ko",
+		NULL,
+	};
+
+	test_spawn_prog(progname, args);
+	exit(EXIT_FAILURE);
+}
+DEFINE_TEST(modprobe_show_exports,
+	.description = "check if modprobe --show-depends doesn't explode with an alias to nothing",
+	.config = {
+		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-modprobe/show-exports",
+	},
+	.output = {
+		.out = TESTSUITE_ROOTFS "test-modprobe/show-exports/correct.txt",
+		.regex = true,
+	});
+
+
 static noreturn int modprobe_builtin(const struct test *t)
 {
 	const char *progname = ABS_TOP_BUILDDIR "/tools/modprobe";
@@ -197,7 +220,7 @@ static noreturn int modprobe_param_kcmdline(const struct test *t)
 	exit(EXIT_FAILURE);
 }
 DEFINE_TEST(modprobe_param_kcmdline,
-	.description = "check if params from kcmdline are passed in fact passed to (f)init_module call",
+	.description = "check if params from kcmdline are passed to (f)init_module call",
 	.config = {
 		[TC_UNAME_R] = "4.4.4",
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-modprobe/module-param-kcmdline",
@@ -280,6 +303,31 @@ DEFINE_TEST(modprobe_param_kcmdline4,
 	.modules_loaded = "",
 	);
 
+static noreturn int modprobe_param_kcmdline5(const struct test *t)
+{
+	const char *progname = ABS_TOP_BUILDDIR "/tools/modprobe";
+	const char *const args[] = {
+		progname,
+		"-c",
+		NULL,
+	};
+
+	test_spawn_prog(progname, args);
+	exit(EXIT_FAILURE);
+}
+DEFINE_TEST(modprobe_param_kcmdline5,
+	.description = "check if params with spaces are parsed correctly from kcmdline",
+	.config = {
+		[TC_UNAME_R] = "4.4.4",
+		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-modprobe/module-param-kcmdline5",
+	},
+	.output = {
+		.out = TESTSUITE_ROOTFS "test-modprobe/module-param-kcmdline5/correct.txt",
+	},
+	.modules_loaded = "",
+	);
+
+
 static noreturn int modprobe_force(const struct test *t)
 {
 	const char *progname = ABS_TOP_BUILDDIR "/tools/modprobe";
@@ -341,6 +389,28 @@ DEFINE_TEST(modprobe_oldkernel_force,
 	.config = {
 		[TC_UNAME_R] = "3.3.3",
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-modprobe/oldkernel-force",
+		[TC_INIT_MODULE_RETCODES] = "",
+	},
+	.modules_loaded = "mod-simple",
+	);
+
+static noreturn int modprobe_external(const struct test *t)
+{
+	const char *progname = ABS_TOP_BUILDDIR "/tools/modprobe";
+	const char *const args[] = {
+		progname,
+		"mod-simple",
+		NULL,
+	};
+
+	test_spawn_prog(progname, args);
+	exit(EXIT_FAILURE);
+}
+DEFINE_TEST(modprobe_external,
+	.description = "check modprobe able to load external module",
+	.config = {
+		[TC_UNAME_R] = "4.4.4",
+		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-modprobe/external",
 		[TC_INIT_MODULE_RETCODES] = "",
 	},
 	.modules_loaded = "mod-simple",

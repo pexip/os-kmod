@@ -1,28 +1,30 @@
 #!/usr/bin/make -f
 SHELL+= -e
 
-KMOD_RECONFIGURE := 1
+ifeq ($(filter noudeb,$(DEB_BUILD_PROFILES)),)
 BUILD_UDEB := 1
-
-
+endif
 
 D   := $(CURDIR)/debian/kmod
 DK  := $(CURDIR)/debian/libkmod2
 DD  := $(CURDIR)/debian/libkmod-dev
 DKU := $(CURDIR)/debian/libkmod2-udeb
 
-CONFFLAGS = --sysconfdir=/etc --bindir=/bin
+CONFFLAGS = \
+  --sysconfdir=/etc \
+  --bindir=/bin \
+  --libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+  --with-rootlibdir=/usr/lib/$(DEB_HOST_MULTIARCH)
 CONFFLAGS_deb  = $(CONFFLAGS) \
   $(shell DEB_BUILD_MAINT_OPTIONS="hardening=+bindnow" \
     dpkg-buildflags --export=configure || true) \
   --enable-gtk-doc \
-  --libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
-  --with-rootlibdir=/lib/$(DEB_HOST_MULTIARCH) \
+  --with-openssl \
+  --with-xz \
   --enable-debug
 CONFFLAGS_udeb = $(CONFFLAGS) \
   $(subst -O2,-Os -fomit-frame-pointer,$(shell DEB_BUILD_MAINT_OPTIONS="hardening=-all" \
-    dpkg-buildflags --export=configure || true)) \
-  --libdir=/lib --with-rootlibdir=/lib
+    dpkg-buildflags --export=configure || true))
 
 ##############################################################################
 SOURCE_DATE_EPOCH ?= $(shell dpkg-parsechangelog --show-field=Date | date --file=- +%s)
@@ -47,19 +49,16 @@ endif
 ##############################################################################
 clean:
 	rm -rf .stamp-* build-*deb
-ifdef KMOD_RECONFIGURE
-	rm -f aclocal.m4 autom4te.cache/* config.h.in config.h.in~ configure \
-		$$(find . -name Makefile.in) \
-		$$(find m4/ build-aux/ libkmod/ -type l)
-endif
+	dh_autoreconf_clean
+	# delete the symlinks created by gtkdocize
+	rm -f $$(find m4/ build-aux/ libkmod/ -type l)
 	dh_clean
 
-# if enabled, must build-depend on: autoconf, automake, libtool, gtk-doc-tools
-ifdef KMOD_RECONFIGURE
-configure: configure.ac
+libkmod/docs/gtk-doc.make:
 	gtkdocize --docdir libkmod/docs
-	autoreconf --force --install --symlink
-endif
+
+configure: configure.ac libkmod/docs/gtk-doc.make
+	dh_autoreconf
 
 build-deb/config.status: configure
 	[ -d build-deb ] || mkdir build-deb
@@ -88,8 +87,9 @@ build-udeb: .stamp-build-udeb
 	touch $@
 
 binary-all: .stamp-binary
-.stamp-binary: build checkroot
+.stamp-binary: build
 	dh_testdir
+	dh_testroot
 	dh_prep
 
 	cd build-deb/ && \
@@ -107,7 +107,7 @@ binary-all: .stamp-binary
 ifdef BUILD_UDEB
 	cd build-udeb/ && \
 	$(MAKE) install-exec DESTDIR=$(DKU)
-	rm -r $(DKU)/lib/
+	rm -r $(DKU)/usr/
 
 	egrep -i '^[a-z]' extra/aliases.conf > $(DKU)/etc/modprobe.d/aliases.conf
 endif
@@ -138,11 +138,8 @@ binary-indep: .stamp-binary
 
 binary:	binary-arch binary-indep
 
-checkroot:
-	test root = "`whoami`"
-
 get-orig-source:
 	cd $(dir $(firstword $(MAKEFILE_LIST)))../ && \
 	uscan --rename --force-download --watchfile debian/watch --destdir $(CURDIR)
 
-.PHONY: clean build build-arch build-indep binary binary-arch binary-indep checkroot
+.PHONY: clean build build-arch build-indep binary binary-arch binary-indep
