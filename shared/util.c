@@ -199,6 +199,8 @@ ssize_t read_str_safe(int fd, char *buf, size_t buflen)
 	size_t todo = buflen - 1;
 	size_t done = 0;
 
+	assert_cc(EAGAIN == EWOULDBLOCK);
+
 	do {
 		ssize_t r = read(fd, buf + done, todo);
 
@@ -208,8 +210,7 @@ ssize_t read_str_safe(int fd, char *buf, size_t buflen)
 			todo -= r;
 			done += r;
 		} else {
-			if (errno == EAGAIN || errno == EWOULDBLOCK ||
-								errno == EINTR)
+			if (errno == EAGAIN || errno == EINTR)
 				continue;
 			else
 				return -errno;
@@ -225,6 +226,8 @@ ssize_t write_str_safe(int fd, const char *buf, size_t buflen)
 	size_t todo = buflen;
 	size_t done = 0;
 
+	assert_cc(EAGAIN == EWOULDBLOCK);
+
 	do {
 		ssize_t r = write(fd, buf + done, todo);
 
@@ -234,8 +237,7 @@ ssize_t write_str_safe(int fd, const char *buf, size_t buflen)
 			todo -= r;
 			done += r;
 		} else {
-			if (errno == EAGAIN || errno == EWOULDBLOCK ||
-								errno == EINTR)
+			if (errno == EAGAIN || errno == EINTR)
 				continue;
 			else
 				return -errno;

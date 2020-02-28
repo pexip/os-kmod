@@ -10,6 +10,8 @@ static int __init test_module_init(void)
 {
 	printB();
 	printC();
+	printF();
+	printG();
 
 	return 0;
 }
