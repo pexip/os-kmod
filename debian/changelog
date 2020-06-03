@@ -1,3 +1,9 @@
+kmod (26-1pexip1) pexip; urgency=medium
+
+  * Migrate to Buster
+
+ -- Vincent Sanders <vince@pexip.com>  Tue, 02 Jun 2020 16:22:27 +0000
+
 kmod (26-1) unstable; urgency=medium
 
   * New upstream release.
