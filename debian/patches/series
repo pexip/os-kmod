@@ -7,3 +7,4 @@ verbose_missing_bin
 # Debian integration
 aliases_conf
 debian_manpages
+openssl102.patch

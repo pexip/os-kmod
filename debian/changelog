@@ -1,6 +1,7 @@
 kmod (26-1pexip1) pexip; urgency=medium
 
   * Migrate to Buster
+  * add openssl102.patch to allow use of openssl 1.0.2
 
  -- Vincent Sanders <vince@pexip.com>  Tue, 02 Jun 2020 16:22:27 +0000
 
