@@ -1,3 +1,66 @@
+kmod (28-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Fixed modinfo -F for built-in modules. (Closes: #970871)
+
+ -- Marco d'Itri <md@linux.it>  Fri, 08 Jan 2021 02:37:04 +0100
+
+kmod (27+20200310-2) unstable; urgency=medium
+
+  * Re-upload to unstable.
+
+ -- Marco d'Itri <md@linux.it>  Sat, 18 Apr 2020 17:53:55 +0200
+
+kmod (27+20200310-1) experimental; urgency=medium
+
+  * New upstream snapshot.
+  * Split kmod-udeb off of libkmod2-udeb and actually ship the libraries
+    in libkmod2-udeb. (Closes: #953952)
+
+ -- Marco d'Itri <md@linux.it>  Sun, 12 Apr 2020 00:59:25 +0200
+
+kmod (27-2) unstable; urgency=medium
+
+  * Drop the verbose_missing_bin patch, which became too much noisy after
+    new files were introduced by 5.3 kernels. (Closes: #949444)
+
+ -- Marco d'Itri <md@linux.it>  Fri, 13 Mar 2020 22:53:37 +0100
+
+kmod (27-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Reset the SELinux file attributes in the initramfs. (Closes: #948366)
+
+ -- Marco d'Itri <md@linux.it>  Wed, 19 Feb 2020 04:56:30 +0100
+
+kmod (26+20191223-1) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Trim trailing whitespace.
+  * Use secure URI in debian/watch.
+  * Rely on pre-initialized dpkg-architecture variables.
+  * Set upstream metadata fields: Repository.
+
+  [ Marco d'Itri ]
+  * New upstream snapshot.
+
+ -- Marco d'Itri <md@linux.it>  Mon, 06 Jan 2020 01:59:49 +0100
+
+kmod (26-3) unstable; urgency=medium
+
+  * Create again /etc/modprobe.d/. (Closes: #940221)
+  * Do not reference removed options support in modules(5). (Closes: #931136)
+
+ -- Marco d'Itri <md@linux.it>  Tue, 17 Sep 2019 21:40:12 +0200
+
+kmod (26-2) unstable; urgency=medium
+
+  * Removed --add-udeb from dh_makeshlibs, since libkmod2-udeb does not
+    actually contain a library. (Closes: #939779)
+  * Switched to dh.
+
+ -- Marco d'Itri <md@linux.it>  Wed, 11 Sep 2019 09:29:57 +0200
+
 kmod (26-1) unstable; urgency=medium
 
   * New upstream release.
@@ -121,12 +184,12 @@ kmod (16-1) unstable; urgency=low
 
 kmod (9-3) unstable; urgency=low
 
-  * Added backported patch dot_kcmdline: correctly parse kcmdline parameters 
+  * Added backported patch dot_kcmdline: correctly parse kcmdline parameters
     containing a dot. (Closes: #689872)
-  * Added backported patch bad_alias_assertion: stop modprobe from aborting 
+  * Added backported patch bad_alias_assertion: stop modprobe from aborting
     from an assertion because of some invalid but common configuration
     directives. (Closes: #674110)
-  * Removed the nfs4 alias from aliases.conf as requested by the kernel 
+  * Removed the nfs4 alias from aliases.conf as requested by the kernel
     team. (Closes: #683972)
   * Removed the unnecessary build-dependency on perl. (Closes: #697750)
 
