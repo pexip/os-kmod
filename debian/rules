@@ -1,5 +1,4 @@
 #!/usr/bin/make -f
-SHELL+= -e
 
 ifeq ($(filter noudeb,$(DEB_BUILD_PROFILES)),)
 BUILD_UDEB := 1
@@ -8,6 +7,7 @@ endif
 D   := $(CURDIR)/debian/kmod
 DK  := $(CURDIR)/debian/libkmod2
 DD  := $(CURDIR)/debian/libkmod-dev
+DU  := $(CURDIR)/debian/kmod-udeb
 DKU := $(CURDIR)/debian/libkmod2-udeb
 
 CONFFLAGS = \
@@ -27,119 +27,82 @@ CONFFLAGS_udeb = $(CONFFLAGS) \
     dpkg-buildflags --export=configure || true))
 
 ##############################################################################
-SOURCE_DATE_EPOCH ?= $(shell dpkg-parsechangelog --show-field=Date | date --file=- +%s)
-export SOURCE_DATE_EPOCH
-
-DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
-
-DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
-DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
-ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
-  CONFFLAGS += --build $(DEB_HOST_GNU_TYPE)
-else
-  CONFFLAGS += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
-endif
+include /usr/share/dpkg/architecture.mk
 
 ifdef BUILD_UDEB
-  BUILD_UDEB_TARGET := .stamp-build-udeb
+  BUILD_UDEB_TARGET := build-udeb/.stamp-build
 else
-  NO_PACKAGE := --no-package=libkmod2-udeb
+  NO_PACKAGE := --no-package=kmod-udeb --no-package=libkmod2-udeb
 endif
 
 ##############################################################################
-clean:
-	rm -rf .stamp-* build-*deb
-	dh_autoreconf_clean
-	# delete the symlinks created by gtkdocize
-	rm -f $$(find m4/ build-aux/ libkmod/ -type l)
-	dh_clean
+%:
+	dh $@ $(NO_PACKAGE)
+
+override_dh_clean:
+	rm -rf build-*deb
+	dh_clean $$(find m4/ build-aux/ libkmod/ -type l)
 
 libkmod/docs/gtk-doc.make:
 	gtkdocize --docdir libkmod/docs
 
-configure: configure.ac libkmod/docs/gtk-doc.make
+override_dh_autoreconf: libkmod/docs/gtk-doc.make
 	dh_autoreconf
 
 build-deb/config.status: configure
-	[ -d build-deb ] || mkdir build-deb
-	cd build-deb/ && \
-	../configure $(CONFFLAGS_deb)
+	dh_auto_configure --builddir=build-deb -- $(CONFFLAGS_deb)
 
 build-udeb/config.status: configure
-	[ -d build-udeb ] || mkdir build-udeb
-	cd build-udeb/ && \
-	../configure $(CONFFLAGS_udeb)
+	dh_auto_configure --builddir=build-udeb -- $(CONFFLAGS_udeb)
 
-build: build-arch build-indep
-build-arch: .stamp-build $(BUILD_UDEB_TARGET)
-build-indep: .stamp-build $(BUILD_UDEB_TARGET)
-.stamp-build: build-deb/config.status
-	dh_testdir
-	cd build-deb/ && \
-	$(MAKE) all V=1
+override_dh_auto_configure:
+
+build-deb/.stamp-build: build-deb/config.status
+	dh_auto_build --builddir=build-deb
 	touch $@
 
-build-udeb: .stamp-build-udeb
-.stamp-build-udeb: build-udeb/config.status
-	dh_testdir
-	cd build-udeb/ && \
-	$(MAKE) all V=1
+build-udeb/.stamp-build: build-udeb/config.status
+	dh_auto_build --builddir=build-udeb
 	touch $@
 
-binary-all: .stamp-binary
-.stamp-binary: build
-	dh_testdir
-	dh_testroot
-	dh_prep
+override_dh_auto_build: build-deb/.stamp-build $(BUILD_UDEB_TARGET)
 
-	cd build-deb/ && \
-	$(MAKE) install DESTDIR=$D
+override_dh_auto_test:
+
+override_dh_auto_install:
+	dh_auto_install --builddir=build-deb --destdir=$D
+ifdef BUILD_UDEB
+	dh_auto_install --builddir=build-udeb --destdir=$(DU)
+endif
+
+override_dh_install:
 	rm $D/usr/lib/*/*.la
-
 	dh_movefiles --sourcedir=debian/kmod
-	rmdir --parents --ignore-fail-on-non-empty $$(find $D -type d -empty)
-
-	dh_installdirs
 	cp extra/aliases.conf $D/lib/modprobe.d/
 	install --mode=755 debian/kmod.initramfs-hook \
 		$D/usr/share/initramfs-tools/hooks/kmod
-
+	rmdir --parents --ignore-fail-on-non-empty $D/sbin/ $$(find $D/usr/ -type d -empty)
 ifdef BUILD_UDEB
-	cd build-udeb/ && \
-	$(MAKE) install-exec DESTDIR=$(DKU)
-	rm -r $(DKU)/usr/
-
-	egrep -i '^[a-z]' extra/aliases.conf > $(DKU)/etc/modprobe.d/aliases.conf
+	mv $(DU)/usr/lib/*/libkmod.so.* $(DKU)/usr/lib/
+	rm -r $(DU)/usr/
+	egrep -i '^[a-z]' extra/aliases.conf > $(DU)/etc/modprobe.d/aliases.conf
 endif
 
+override_dh_installdocs:
 	dh_installdocs -pkmod -plibkmod-dev --link-doc=libkmod2
 	dh_installdocs -pkmod --link-doc=libkmod2 README TODO
 	dh_installdocs -plibkmod2
 	cp libkmod/README $(DD)/usr/share/doc/libkmod2/README.libkmod
+
+override_dh_installchangelogs:
 	dh_installchangelogs NEWS
-	dh_installman extra/*.5
+
+override_dh_installinit:
 	dh_installinit --no-start
-	dh_link
-	dh_strip
-	dh_compress
-	dh_fixperms
-	dh_makeshlibs --add-udeb=libkmod2-udeb -- -c4
+
+override_dh_makeshlibs:
+	dh_makeshlibs -- -c4
+
+override_dh_shlibdeps:
 	dh_shlibdeps -- --warnings=7
-	dh_installdeb
-	dh_gencontrol $(NO_PACKAGE)
-	dh_md5sums
-	touch $@
 
-binary-arch: .stamp-binary
-	dh_builddeb -a $(NO_PACKAGE)
-
-binary-indep: .stamp-binary
-	dh_builddeb -i
-
-binary:	binary-arch binary-indep
-
-get-orig-source:
-	cd $(dir $(firstword $(MAKEFILE_LIST)))../ && \
-	uscan --rename --force-download --watchfile debian/watch --destdir $(CURDIR)
-
-.PHONY: clean build build-arch build-indep binary binary-arch binary-indep

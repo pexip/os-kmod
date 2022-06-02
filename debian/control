@@ -3,15 +3,10 @@ Section: admin
 Priority: important
 Maintainer: Pexip AS <packaging@pexip.com>
 XSBC-Pexip-Original-Maintainer: Marco d'Itri <md@linux.it>
-Build-Depends: debhelper (>> 9.20160403~),
-               liblzma-dev,
-	       libssl1.0-dev | libssl-dev (<< 1.1),
-	       xsltproc,
-               autoconf,
-               automake,
-	       libtool,
-	       gtk-doc-tools
-Standards-Version: 4.2.1
+XSBC-Pexip-Original-Maintainer: Marco d'Itri <md@linux.it>
+Build-Depends: debhelper-compat (= 12), liblzma-dev, libssl-dev, xsltproc,
+  autoconf, automake, libtool, gtk-doc-tools
+Standards-Version: 4.5.1.0
 Rules-Requires-Root: no
 Vcs-Git: https://salsa.debian.org/md/kmod.git
 Vcs-Browser: https://salsa.debian.org/md/kmod
@@ -21,9 +16,8 @@ Package: kmod
 Architecture: linux-any
 Multi-Arch: foreign
 Depends: ${shlibs:Depends}, ${misc:Depends}, lsb-base
-Breaks: oss-compat (= 4), alsa-base (<= 1.0.25+3)
 Description: tools for managing Linux kernel modules
- This package contains a set of programs for loading, inserting, and 
+ This package contains a set of programs for loading, inserting, and
  removing kernel modules for Linux.
  It replaces module-init-tools.
 
@@ -47,6 +41,15 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, libkmod2 (= ${binary:Version})
 Description: libkmod development files
  This package contains the files needed for developing applications that
  use libkmod.
+
+Package: kmod-udeb
+Package-Type: udeb
+Section: debian-installer
+Architecture: linux-any
+Pre-Depends: ${misc:Pre-Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: libkmod shared library
+ This is a minimal version of kmod, only for use in the installation system.
 
 Package: libkmod2-udeb
 Package-Type: udeb
