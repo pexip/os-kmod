@@ -1,11 +1,11 @@
 --- a/configure.ac
 +++ b/configure.ac
-@@ -110,7 +110,7 @@
+@@ -120,7 +120,7 @@
  	AS_HELP_STRING([--with-openssl], [handle PKCS7 signatures @<:@default=disabled@:>@]),
  	[], [with_openssl=no])
  AS_IF([test "x$with_openssl" != "xno"], [
--	PKG_CHECK_MODULES([openssl], [openssl >= 1.1.0])
-+	PKG_CHECK_MODULES([openssl], [openssl >= 1.0.0])
+-	PKG_CHECK_MODULES([libcrypto], [libcrypto >= 1.1.0])
++	PKG_CHECK_MODULES([libcrypto], [libcrypto >= 1.0.0])
  	AC_DEFINE([ENABLE_OPENSSL], [1], [Enable openssl for modinfo.])
  ], [
  	AC_MSG_NOTICE([openssl support not requested])
@@ -20,9 +20,9 @@
  
  	return str;
  }
-@@ -246,7 +246,7 @@
+@@ -247,7 +247,7 @@
  
- 	CMS_SignerInfo_get0_algs(si, NULL, NULL, &dig_alg, &sig_alg);
+ 	PKCS7_SIGNER_INFO_get0_algs(si, NULL, &dig_alg, &sig_alg);
  
 -	sig_info->sig = (const char *)ASN1_STRING_get0_data(sig);
 +	sig_info->sig = (const char *)ASN1_STRING_data(sig);
