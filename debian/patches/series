@@ -7,4 +7,3 @@ fix_modinfo_F
 # Debian integration
 aliases_conf
 debian_manpages
-openssl102.patch
