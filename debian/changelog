@@ -1,3 +1,9 @@
+kmod (28-1pexip4) pexip-bullseye-openssl3; urgency=medium
+
+  * OpenSSL 3 support
+
+ -- John-Mark Bell <jmb@pexip.com>  Thu, 01 Dec 2022 22:39:47 +0000
+
 kmod (28-1pexip3) pexip-bullseye; urgency=medium
 
   * Bullseye rebuild for ARM64 inclusion
