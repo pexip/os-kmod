@@ -1,3 +1,9 @@
+kmod (28-1pexip5) pexip-bullseye-openssl3; urgency=medium
+
+  * Merge openssl3 changes to bullseye
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Wed, 25 Jan 2023 16:29:33 +0000
+
 kmod (28-1pexip4) pexip-bullseye-openssl3; urgency=medium
 
   * OpenSSL 3 support
