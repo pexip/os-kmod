@@ -70,6 +70,7 @@ enum kmod_index {
 	KMOD_INDEX_MODULES_DEP = 0,
 	KMOD_INDEX_MODULES_ALIAS,
 	KMOD_INDEX_MODULES_SYMBOL,
+	KMOD_INDEX_MODULES_BUILTIN_ALIAS,
 	KMOD_INDEX_MODULES_BUILTIN,
 	/* Padding to make sure enum is not mapped to char */
 	_KMOD_INDEX_PAD = 1U << 31,
@@ -128,6 +129,9 @@ int kmod_module_new_from_path(struct kmod_ctx *ctx, const char *path,
 						struct kmod_module **mod);
 int kmod_module_new_from_lookup(struct kmod_ctx *ctx, const char *given_alias,
 						struct kmod_list **list);
+int kmod_module_new_from_name_lookup(struct kmod_ctx *ctx,
+				     const char *modname,
+				     struct kmod_module **mod);
 int kmod_module_new_from_loaded(struct kmod_ctx *ctx,
 						struct kmod_list **list);
 
@@ -141,6 +145,8 @@ struct kmod_module *kmod_module_get_module(const struct kmod_list *entry);
 enum kmod_remove {
 	KMOD_REMOVE_FORCE = O_TRUNC,
 	KMOD_REMOVE_NOWAIT = O_NONBLOCK, /* always set */
+	/* libkmod-only defines, not passed to kernel */
+	KMOD_REMOVE_NOLOG = 1,
 };
 
 /* Insertion flags */

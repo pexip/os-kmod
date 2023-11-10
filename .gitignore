@@ -3,6 +3,8 @@
 *.gcno
 /*.tar.xz
 /*.md5sum
+/*.mbx
+/*.cover
 .deps/
 .libs/
 /Makefile
@@ -16,10 +18,10 @@
 /config.log
 /config.status
 /configure
-/coverage
 /cov-int
-/doltcompile
-/doltlibtool
+/coverage
+/gtk-doc.make
+/kmod-*.tar.*
 /libtool
 /stamp-h1
 /test-suite.log

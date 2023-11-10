@@ -32,6 +32,7 @@
 #include <sys/wait.h>
 
 #include <shared/array.h>
+#include <shared/util.h>
 #include <shared/macro.h>
 
 #include <libkmod/libkmod.h>
@@ -54,14 +55,19 @@ static int use_blacklist = 0;
 static int force = 0;
 static int strip_modversion = 0;
 static int strip_vermagic = 0;
-static int remove_dependencies = 0;
+static int remove_holders = 0;
+static unsigned long long wait_msec = 0;
 static int quiet_inuse = 0;
 
-static const char cmdopts_s[] = "arRibfDcnC:d:S:sqvVh";
+static const char cmdopts_s[] = "arw:RibfDcnC:d:S:sqvVh";
 static const struct option cmdopts[] = {
 	{"all", no_argument, 0, 'a'},
+
 	{"remove", no_argument, 0, 'r'},
 	{"remove-dependencies", no_argument, 0, 5},
+	{"remove-holders", no_argument, 0, 5},
+	{"wait", required_argument, 0, 'w'},
+
 	{"resolve-alias", no_argument, 0, 'R'},
 	{"first-time", no_argument, 0, 3},
 	{"ignore-install", no_argument, 0, 'i'},
@@ -107,8 +113,11 @@ static void help(void)
 		"\t                            be a module name to be inserted\n"
 		"\t                            or removed (-r)\n"
 		"\t-r, --remove                Remove modules instead of inserting\n"
-		"\t    --remove-dependencies   Also remove modules depending on it\n"
-		"\t-R, --resolve-alias         Only lookup and print alias and exit\n"
+		"\t    --remove-dependencies   Deprecated: use --remove-holders\n"
+		"\t    --remove-holders        Also remove module holders (use together with -r)\n"
+		"\t-w, --wait <MSEC>           When removing a module, wait up to MSEC for\n"
+		"\t                            module's refcount to become 0 so it can be\n"
+		"\t                            removed (use together with -r)\n"
 		"\t    --first-time            Fail if module already inserted or removed\n"
 		"\t-i, --ignore-install        Ignore install commands\n"
 		"\t-i, --ignore-remove         Ignore remove commands\n"
@@ -120,6 +129,7 @@ static void help(void)
 		"\t    --force-vermagic        Ignore module's version magic\n"
 		"\n"
 		"Query Options:\n"
+		"\t-R, --resolve-alias         Only lookup and print alias and exit\n"
 		"\t-D, --show-depends          Only print module dependencies and exit\n"
 		"\t-c, --showconfig            Print out known configuration and exit\n"
 		"\t-c, --show-config           Same as --showconfig\n"
@@ -320,10 +330,11 @@ end:
 static int rmmod_do_remove_module(struct kmod_module *mod)
 {
 	const char *modname = kmod_module_get_name(mod);
-	struct kmod_list *deps, *itr;
+	unsigned long long interval_msec = 0, t0_msec = 0,
+		      tend_msec = 0;
 	int flags = 0, err;
 
-	SHOW("rmmod %s\n", kmod_module_get_name(mod));
+	SHOW("rmmod %s\n", modname);
 
 	if (dry_run)
 		return 0;
@@ -331,37 +342,61 @@ static int rmmod_do_remove_module(struct kmod_module *mod)
 	if (force)
 		flags |= KMOD_REMOVE_FORCE;
 
-	err = kmod_module_remove_module(mod, flags);
-	if (err == -EEXIST) {
-		if (!first_time)
-			err = 0;
-		else
-			LOG("Module %s is not in kernel.\n", modname);
-	}
+	if (wait_msec)
+		flags |= KMOD_REMOVE_NOLOG;
 
-	deps = kmod_module_get_dependencies(mod);
-	if (deps != NULL) {
-		kmod_list_foreach(itr, deps) {
-			struct kmod_module *dep = kmod_module_get_module(itr);
-			if (kmod_module_get_refcnt(dep) == 0)
-				rmmod_do_remove_module(dep);
-			kmod_module_unref(dep);
+	do {
+		err = kmod_module_remove_module(mod, flags);
+		if (err == -EEXIST) {
+			if (!first_time)
+				err = 0;
+			else
+				LOG("Module %s is not in kernel.\n", modname);
+			break;
+		} else if (err == -EAGAIN && wait_msec) {
+			unsigned long long until_msec;
+
+			if (!t0_msec) {
+				t0_msec = now_msec();
+				tend_msec = t0_msec + wait_msec;
+				interval_msec = 1;
+			}
+
+			until_msec = get_backoff_delta_msec(t0_msec, tend_msec,
+							  &interval_msec);
+			err = sleep_until_msec(until_msec);
+
+			if (!t0_msec)
+				err = -ENOTSUP;
+
+			if (err < 0) {
+				ERR("Failed to sleep: %s\n", strerror(-err));
+				err = -EAGAIN;
+				break;
+			}
+		} else {
+			break;
 		}
-		kmod_module_unref_list(deps);
-	}
+	} while (interval_msec);
+
+	if (err < 0 && wait_msec)
+		ERR("could not remove '%s': %s\n", modname, strerror(-err));
 
 	return err;
 }
 
-static int rmmod_do_module(struct kmod_module *mod, bool do_dependencies);
+#define RMMOD_FLAG_REMOVE_HOLDERS	0x1
+#define RMMOD_FLAG_IGNORE_BUILTIN	0x2
+static int rmmod_do_module(struct kmod_module *mod, int flags);
 
-static int rmmod_do_deps_list(struct kmod_list *list, bool stop_on_errors)
+/* Remove modules in reverse order */
+static int rmmod_do_modlist(struct kmod_list *list, bool stop_on_errors)
 {
 	struct kmod_list *l;
 
 	kmod_list_foreach_reverse(l, list) {
 		struct kmod_module *m = kmod_module_get_module(l);
-		int r = rmmod_do_module(m, false);
+		int r = rmmod_do_module(m, RMMOD_FLAG_IGNORE_BUILTIN);
 		kmod_module_unref(m);
 
 		if (r < 0 && stop_on_errors)
@@ -371,7 +406,7 @@ static int rmmod_do_deps_list(struct kmod_list *list, bool stop_on_errors)
 	return 0;
 }
 
-static int rmmod_do_module(struct kmod_module *mod, bool do_dependencies)
+static int rmmod_do_module(struct kmod_module *mod, int flags)
 {
 	const char *modname = kmod_module_get_name(mod);
 	struct kmod_list *pre = NULL, *post = NULL;
@@ -389,7 +424,8 @@ static int rmmod_do_module(struct kmod_module *mod, bool do_dependencies)
 		cmd = kmod_module_get_remove_commands(mod);
 	}
 
-	if (cmd == NULL && !ignore_loaded) {
+	/* Quick check if module is loaded, otherwise there's nothing to do */
+	if (!cmd && !ignore_loaded) {
 		int state = kmod_module_get_initstate(mod);
 
 		if (state < 0) {
@@ -401,23 +437,30 @@ static int rmmod_do_module(struct kmod_module *mod, bool do_dependencies)
 			}
 			goto error;
 		} else if (state == KMOD_MODULE_BUILTIN) {
-			LOG("Module %s is builtin.\n", modname);
-			err = -ENOENT;
+			if (flags & RMMOD_FLAG_IGNORE_BUILTIN) {
+				err = 0;
+			} else {
+				LOG("Module %s is builtin.\n", modname);
+				err = -ENOENT;
+			}
 			goto error;
 		}
 	}
 
-	rmmod_do_deps_list(post, false);
+	/* 1. @mod's post-softdeps in reverse order */
+	rmmod_do_modlist(post, false);
 
-	if (do_dependencies && remove_dependencies) {
-		struct kmod_list *deps = kmod_module_get_dependencies(mod);
+	/* 2. Other modules holding @mod */
+	if (flags & RMMOD_FLAG_REMOVE_HOLDERS) {
+		struct kmod_list *holders = kmod_module_get_holders(mod);
 
-		err = rmmod_do_deps_list(deps, true);
+		err = rmmod_do_modlist(holders, true);
 		if (err < 0)
 			goto error;
 	}
 
-	if (!ignore_loaded && !cmd) {
+	/* 3. @mod itself, but check for refcnt first */
+	if (!cmd && !ignore_loaded && !wait_msec) {
 		int usage = kmod_module_get_refcnt(mod);
 
 		if (usage > 0) {
@@ -429,7 +472,7 @@ static int rmmod_do_module(struct kmod_module *mod, bool do_dependencies)
 		}
 	}
 
-	if (cmd == NULL)
+	if (!cmd)
 		err = rmmod_do_remove_module(mod);
 	else
 		err = command_do(mod, "remove", cmd, NULL);
@@ -437,7 +480,22 @@ static int rmmod_do_module(struct kmod_module *mod, bool do_dependencies)
 	if (err < 0)
 		goto error;
 
-	rmmod_do_deps_list(pre, false);
+	/* 4. Other modules that became unused: errors are non-fatal */
+	if (!cmd) {
+		struct kmod_list *deps, *itr;
+
+		deps = kmod_module_get_dependencies(mod);
+		kmod_list_foreach(itr, deps) {
+			struct kmod_module *dep = kmod_module_get_module(itr);
+			if (kmod_module_get_refcnt(dep) == 0)
+				rmmod_do_remove_module(dep);
+			kmod_module_unref(dep);
+		}
+		kmod_module_unref_list(deps);
+	}
+
+	/* 5. @mod's pre-softdeps in reverse order: errors are non-fatal */
+	rmmod_do_modlist(pre, false);
 
 error:
 	kmod_module_unref_list(pre);
@@ -462,7 +520,9 @@ static int rmmod(struct kmod_ctx *ctx, const char *alias)
 
 	kmod_list_foreach(l, list) {
 		struct kmod_module *mod = kmod_module_get_module(l);
-		err = rmmod_do_module(mod, true);
+		int flags = remove_holders ? RMMOD_FLAG_REMOVE_HOLDERS : 0;
+
+		err = rmmod_do_module(mod, flags);
 		kmod_module_unref(mod);
 		if (err < 0)
 			break;
@@ -677,7 +737,7 @@ static int options_from_array(char **args, int nargs, char **output)
 static char **prepend_options_from_env(int *p_argc, char **orig_argv)
 {
 	const char *p, *env = getenv("MODPROBE_OPTIONS");
-	char **new_argv, *str_start, *str_end, *str, *s, *quote;
+	char **new_argv, *str_end, *str, *s, *quote;
 	int i, argc = *p_argc;
 	size_t envlen, space_count = 0;
 
@@ -695,10 +755,10 @@ static char **prepend_options_from_env(int *p_argc, char **orig_argv)
 		return NULL;
 
 	new_argv[0] = orig_argv[0];
-	str_start = str = (char *) (new_argv + argc + space_count + 3);
+	str = (char *) (new_argv + argc + space_count + 3);
 	memcpy(str, env, envlen + 1);
 
-	str_end = str_start + envlen;
+	str_end = str + envlen;
 
 	quote = NULL;
 	for (i = 1, s = str; *s != '\0'; s++) {
@@ -737,7 +797,7 @@ static char **prepend_options_from_env(int *p_argc, char **orig_argv)
 	}
 
 	memcpy(new_argv + i, orig_argv + 1, sizeof(char *) * (argc - 1));
-	new_argv[i + argc] = NULL;
+	new_argv[i + argc - 1] = NULL;
 	*p_argc = i + argc - 1;
 
 	return new_argv;
@@ -759,6 +819,7 @@ static int do_modprobe(int argc, char **orig_argv)
 	int do_show_modversions = 0;
 	int do_show_exports = 0;
 	int err;
+	struct stat stat_buf;
 
 	argv = prepend_options_from_env(&argc, orig_argv);
 	if (argv == NULL) {
@@ -780,11 +841,18 @@ static int do_modprobe(int argc, char **orig_argv)
 			do_remove = 1;
 			break;
 		case 5:
-			remove_dependencies = 1;
+			remove_holders = 1;
 			break;
-		case 'R':
-			lookup_only = 1;
+		case 'w': {
+			char *endptr = NULL;
+			wait_msec = strtoul(optarg, &endptr, 0);
+			if (!*optarg || *endptr) {
+				ERR("unexpected wait value '%s'.\n", optarg);
+				err = -1;
+				goto done;
+			}
 			break;
+		}
 		case 3:
 			first_time = 1;
 			break;
@@ -807,6 +875,9 @@ static int do_modprobe(int argc, char **orig_argv)
 			ignore_loaded = 1;
 			dry_run = 1;
 			do_show = 1;
+			break;
+		case 'R':
+			lookup_only = 1;
 			break;
 		case 'c':
 			do_show_config = 1;
@@ -876,6 +947,12 @@ static int do_modprobe(int argc, char **orig_argv)
 
 	args = argv + optind;
 	nargs = argc - optind;
+
+	if (!use_syslog &&
+	    (!stderr ||
+	     fileno(stderr) == -1 ||
+	     fstat(fileno(stderr), &stat_buf)))
+		use_syslog = 1;
 
 	log_open(use_syslog);
 

@@ -57,12 +57,14 @@ static struct _index_files {
 	[KMOD_INDEX_MODULES_DEP] = { .fn = "modules.dep", .prefix = "" },
 	[KMOD_INDEX_MODULES_ALIAS] = { .fn = "modules.alias", .prefix = "alias " },
 	[KMOD_INDEX_MODULES_SYMBOL] = { .fn = "modules.symbols", .prefix = "alias "},
+	[KMOD_INDEX_MODULES_BUILTIN_ALIAS] = { .fn = "modules.builtin.alias", .prefix = "" },
 	[KMOD_INDEX_MODULES_BUILTIN] = { .fn = "modules.builtin", .prefix = ""},
 };
 
 static const char *default_config_paths[] = {
 	SYSCONFDIR "/modprobe.d",
 	"/run/modprobe.d",
+	"/usr/local/lib/modprobe.d",
 	"/lib/modprobe.d",
 	NULL
 };
@@ -233,10 +235,11 @@ static char *get_kernel_release(const char *dirname)
  *           Otherwise, give an absolute dirname.
  * @config_paths: ordered array of paths (directories or files) where
  *                to load from user-defined configuration parameters such as
- *                alias, blacklists, commands (install, remove). If
- *                NULL defaults to /run/modprobe.d, /etc/modprobe.d and
- *                /lib/modprobe.d. Give an empty vector if configuration should
- *                not be read. This array must be null terminated.
+ *                alias, blacklists, commands (install, remove). If NULL
+ *                defaults to /etc/modprobe.d, /run/modprobe.d,
+ *                /usr/local/lib/modprobe.d and /lib/modprobe.d. Give an empty
+ *                vector if configuration should not be read. This array must
+ *                be null terminated.
  *
  * Create kmod library context. This reads the kmod configuration
  * and fills in the default values.
@@ -520,6 +523,27 @@ static char *lookup_builtin_file(struct kmod_ctx *ctx, const char *name)
 	}
 
 	return line;
+}
+
+int kmod_lookup_alias_from_kernel_builtin_file(struct kmod_ctx *ctx,
+						const char *name,
+						struct kmod_list **list)
+{
+	struct kmod_list *l;
+	int ret;
+
+	assert(*list == NULL);
+
+	ret = kmod_lookup_alias_from_alias_bin(ctx,
+					       KMOD_INDEX_MODULES_BUILTIN_ALIAS,
+					       name, list);
+
+	kmod_list_foreach(l, *list) {
+		struct kmod_module *mod = l->data;
+		kmod_module_set_builtin(mod, true);
+	}
+
+	return ret;
 }
 
 int kmod_lookup_alias_from_builtin_file(struct kmod_ctx *ctx, const char *name,
@@ -833,6 +857,7 @@ KMOD_EXPORT int kmod_validate_resources(struct kmod_ctx *ctx)
  */
 KMOD_EXPORT int kmod_load_resources(struct kmod_ctx *ctx)
 {
+	int ret = 0;
 	size_t i;
 
 	if (ctx == NULL)
@@ -849,17 +874,25 @@ KMOD_EXPORT int kmod_load_resources(struct kmod_ctx *ctx)
 
 		snprintf(path, sizeof(path), "%s/%s.bin", ctx->dirname,
 							index_files[i].fn);
-		ctx->indexes[i] = index_mm_open(ctx, path,
-						&ctx->indexes_stamp[i]);
-		if (ctx->indexes[i] == NULL)
-			goto fail;
+		ret = index_mm_open(ctx, path, &ctx->indexes_stamp[i],
+				    &ctx->indexes[i]);
+
+		/*
+		 * modules.builtin.alias are considered optional since it's
+		 * recently added and older installations may not have it;
+		 * we allow failing for any reason
+		 */
+		if (ret) {
+			if (i != KMOD_INDEX_MODULES_BUILTIN_ALIAS)
+				break;
+			ret = 0;
+		}
 	}
 
-	return 0;
+	if (ret)
+		kmod_unload_resources(ctx);
 
-fail:
-	kmod_unload_resources(ctx);
-	return -ENOMEM;
+	return ret;
 }
 
 /**
