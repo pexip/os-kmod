@@ -1,7 +1,6 @@
 #!/bin/sh -e
 
 create_etc_modules() {
-  [ -e /etc/modules ] && return 0
   cat <<END > /etc/modules
 # /etc/modules: kernel modules to load at boot time.
 #

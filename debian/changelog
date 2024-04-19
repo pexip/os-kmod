@@ -1,3 +1,11 @@
+kmod (30+20221128-1+pexip24u4) pexip; urgency=medium
+
+  * Always write out a fresh copy of /etc/modules, We never do
+    anything with the list here, so always replace things to reduce
+    upgrade diffs.
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Fri, 19 Apr 2024 17:27:46 +0100
+
 kmod (30+20221128-1+pexip24u3) pexip-bookworm; urgency=medium
 
   * New versioning scheme
