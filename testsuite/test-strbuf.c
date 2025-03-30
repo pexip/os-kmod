@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Copyright (C)  2014 Intel Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <errno.h>
@@ -33,6 +21,7 @@ static const char *TEXT =
 static int test_strbuf_pushchar(const struct test *t)
 {
 	struct strbuf buf;
+	const char *result;
 	char *result1, *result2;
 	const char *c;
 
@@ -41,10 +30,10 @@ static int test_strbuf_pushchar(const struct test *t)
 	for (c = TEXT; *c != '\0'; c++)
 		strbuf_pushchar(&buf, *c);
 
-	result1 = (char *) strbuf_str(&buf);
-	assert_return(result1 == buf.bytes, EXIT_FAILURE);
-	assert_return(streq(result1, TEXT), EXIT_FAILURE);
-	result1 = strdup(result1);
+	result = strbuf_str(&buf);
+	assert_return(result == buf.bytes, EXIT_FAILURE);
+	assert_return(streq(result, TEXT), EXIT_FAILURE);
+	result1 = strdup(result);
 
 	result2 = strbuf_steal(&buf);
 	assert_return(streq(result1, result2), EXIT_FAILURE);
@@ -54,15 +43,15 @@ static int test_strbuf_pushchar(const struct test *t)
 
 	return 0;
 }
-DEFINE_TEST(test_strbuf_pushchar,
-		.description = "test strbuf_{pushchar, str, steal}");
+DEFINE_TEST(test_strbuf_pushchar, .description = "test strbuf_{pushchar, str, steal}");
 
 static int test_strbuf_pushchars(const struct test *t)
 {
 	struct strbuf buf;
-	char *result1, *saveptr = NULL, *str, *result2;
+	const char *result1;
+	char *saveptr = NULL, *str, *result2;
 	const char *c;
-	int lastwordlen = 0;
+	size_t lastwordlen = 0;
 
 	strbuf_init(&buf);
 	str = strdup(TEXT);
@@ -73,8 +62,13 @@ static int test_strbuf_pushchars(const struct test *t)
 		lastwordlen = strlen(c);
 	}
 
+	/*
+	 * Replace the last space char, which also guarantees there's at least 1 char
+	 * available for the '\0' added by strbuf_str() so result1 == buf.bytes should be
+	 * true
+	 */
 	strbuf_popchar(&buf);
-	result1 = (char *) strbuf_str(&buf);
+	result1 = strbuf_str(&buf);
 	assert_return(result1 == buf.bytes, EXIT_FAILURE);
 	assert_return(streq(result1, TEXT), EXIT_FAILURE);
 
@@ -83,8 +77,7 @@ static int test_strbuf_pushchars(const struct test *t)
 	assert_return(!streq(TEXT, result2), EXIT_FAILURE);
 	assert_return(strncmp(TEXT, result2, strlen(TEXT) - lastwordlen) == 0,
 		      EXIT_FAILURE);
-	assert_return(result2[strlen(TEXT) - lastwordlen] == '\0',
-		      EXIT_FAILURE);
+	assert_return(result2[strlen(TEXT) - lastwordlen] == '\0', EXIT_FAILURE);
 
 	free(str);
 	free(result2);
@@ -92,7 +85,178 @@ static int test_strbuf_pushchars(const struct test *t)
 	return 0;
 }
 DEFINE_TEST(test_strbuf_pushchars,
-		.description = "test strbuf_{pushchars, popchar, popchars}");
+	    .description = "test strbuf_{pushchars, popchar, popchars}");
 
+static int test_strbuf_steal(const struct test *t)
+{
+	char *result;
+
+	{
+		_cleanup_strbuf_ struct strbuf buf;
+
+		strbuf_init(&buf);
+		strbuf_pushchars(&buf, TEXT);
+		result = strbuf_steal(&buf);
+	}
+
+	assert_return(streq(result, TEXT), EXIT_FAILURE);
+	free(result);
+
+	return 0;
+}
+DEFINE_TEST(test_strbuf_steal, .description = "test strbuf_steal with cleanup");
+
+static int test_strbuf_with_stack(const struct test *t)
+{
+	const char test[] = "test-something-small";
+	const char *stack_buf;
+	char *p;
+	DECLARE_STRBUF_WITH_STACK(buf, 256);
+	DECLARE_STRBUF_WITH_STACK(buf2, sizeof(test) + 1);
+	DECLARE_STRBUF_WITH_STACK(buf3, sizeof(test) + 1);
+
+	strbuf_pushchars(&buf, test);
+	assert_return(streq(test, strbuf_str(&buf)), EXIT_FAILURE);
+	p = strbuf_steal(&buf);
+	assert_return(streq(test, p), EXIT_FAILURE);
+	free(p);
+
+	strbuf_pushchars(&buf2, test);
+	assert_return(streq(test, strbuf_str(&buf2)), EXIT_FAILURE);
+	/* It fits on stack, but when we steal, we get a copy on heap */
+	p = strbuf_steal(&buf2);
+	assert_return(streq(test, p), EXIT_FAILURE);
+	free(p);
+
+	/*
+	 * Check assumption about buffer being on stack vs heap is indeed valid.
+	 * Not to be done in real code.
+	 */
+	strbuf_clear(&buf3);
+	stack_buf = buf3.bytes;
+	strbuf_pushchars(&buf3, test);
+	assert_return(stack_buf == buf3.bytes, EXIT_FAILURE);
+
+	assert_return(streq(test, strbuf_str(&buf3)), EXIT_FAILURE);
+	assert_return(stack_buf == buf3.bytes, EXIT_FAILURE);
+
+	strbuf_pushchars(&buf3, "-overflow");
+	assert_return(stack_buf != buf3.bytes, EXIT_FAILURE);
+
+	return 0;
+}
+DEFINE_TEST(test_strbuf_with_stack, .description = "test strbuf with stack");
+
+static int test_strbuf_with_heap(const struct test *t)
+{
+	DECLARE_STRBUF(heapbuf);
+
+	assert_return(heapbuf.bytes == NULL, EXIT_FAILURE);
+	assert_return(heapbuf.size == 0, EXIT_FAILURE);
+	assert_return(heapbuf.used == 0, EXIT_FAILURE);
+	strbuf_pushchars(&heapbuf, "-overflow");
+	assert_return(heapbuf.bytes != NULL, EXIT_FAILURE);
+	assert_return(heapbuf.size != 0, EXIT_FAILURE);
+	assert_return(heapbuf.used != 0, EXIT_FAILURE);
+
+	return 0;
+}
+DEFINE_TEST(test_strbuf_with_heap, .description = "test strbuf with heap only");
+
+static int test_strbuf_reserve_extra(const struct test *t)
+{
+	_cleanup_strbuf_ struct strbuf buf;
+	size_t size;
+
+	strbuf_init(&buf);
+	strbuf_reserve_extra(&buf, strlen(TEXT) + 1);
+	size = buf.size;
+	assert_return(size >= strlen(TEXT) + 1, EXIT_FAILURE);
+
+	strbuf_pushchars(&buf, TEXT);
+	strbuf_pushchar(&buf, '\0');
+	assert_return(size == buf.size, EXIT_FAILURE);
+
+	strbuf_clear(&buf);
+	strbuf_pushchars(&buf, TEXT);
+	assert_return(size == buf.size, EXIT_FAILURE);
+
+	return 0;
+}
+DEFINE_TEST(test_strbuf_reserve_extra, .description = "test strbuf_reserve_extra");
+
+static int test_strbuf_pushmem(const struct test *t)
+{
+	_cleanup_strbuf_ struct strbuf buf;
+	size_t size;
+
+	strbuf_init(&buf);
+	strbuf_pushmem(&buf, "", 0);
+	strbuf_reserve_extra(&buf, strlen(TEXT) + 1);
+	size = buf.size;
+	strbuf_pushmem(&buf, TEXT, strlen(TEXT) + 1);
+
+	assert_return(size == buf.size, EXIT_FAILURE);
+	assert_return(streq(TEXT, strbuf_str(&buf)), EXIT_FAILURE);
+	assert_return(size == buf.size, EXIT_FAILURE);
+
+	return 0;
+}
+DEFINE_TEST(test_strbuf_pushmem, .description = "test strbuf_reserve");
+
+static int test_strbuf_used(const struct test *t)
+{
+	_cleanup_strbuf_ struct strbuf buf;
+
+	strbuf_init(&buf);
+	assert_return(strbuf_used(&buf) == 0, EXIT_FAILURE);
+
+	strbuf_pushchars(&buf, TEXT);
+	assert_return(strbuf_used(&buf) == strlen(TEXT), EXIT_FAILURE);
+
+	strbuf_reserve_extra(&buf, 1);
+	assert_return(strbuf_used(&buf) == strlen(TEXT), EXIT_FAILURE);
+
+	assert_return(streq(TEXT, strbuf_str(&buf)), EXIT_FAILURE);
+	assert_return(strbuf_used(&buf) == strlen(TEXT), EXIT_FAILURE);
+
+	strbuf_pushchar(&buf, '\0');
+	assert_return(streq(TEXT, strbuf_str(&buf)), EXIT_FAILURE);
+	assert_return(strbuf_used(&buf) == strlen(TEXT) + 1, EXIT_FAILURE);
+
+	return 0;
+}
+DEFINE_TEST(test_strbuf_used, .description = "test strbuf_used");
+
+static int test_strbuf_shrink_to(const struct test *t)
+{
+	_cleanup_strbuf_ struct strbuf buf;
+
+	strbuf_init(&buf);
+	strbuf_shrink_to(&buf, 0);
+	assert_return(strbuf_used(&buf) == 0, EXIT_FAILURE);
+
+	strbuf_pushchars(&buf, TEXT);
+	strbuf_shrink_to(&buf, strlen(TEXT) - 1);
+	assert_return(strbuf_used(&buf) == strlen(TEXT) - 1, EXIT_FAILURE);
+
+	return 0;
+}
+DEFINE_TEST(test_strbuf_shrink_to, .description = "test strbuf_shrink_to");
+
+static int xfail_strbuf_shrink_to(const struct test *t)
+{
+	_cleanup_strbuf_ struct strbuf buf;
+
+	strbuf_init(&buf);
+	strbuf_pushchar(&buf, '/');
+
+	/* This should crash on assert */
+	strbuf_shrink_to(&buf, 2);
+
+	return 0;
+}
+DEFINE_TEST(xfail_strbuf_shrink_to, .description = "xfail strbuf_shrink_to",
+	    .expected_fail = true);
 
 TESTSUITE_MAIN();

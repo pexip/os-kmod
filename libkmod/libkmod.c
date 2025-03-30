@@ -1,20 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
- * libkmod - interface to kernel module operations
- *
  * Copyright (C) 2011-2013  ProFUSION embedded systems
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
@@ -42,56 +28,47 @@
 #define KMOD_LRU_MAX (128)
 #define _KMOD_INDEX_MODULES_SIZE KMOD_INDEX_MODULES_BUILTIN + 1
 
-/**
- * SECTION:libkmod
- * @short_description: libkmod context
- *
- * The context contains the default values for the library user,
- * and is passed to all library operations.
- */
-
-static struct _index_files {
+static const struct {
 	const char *fn;
-	const char *prefix;
+	bool alias_prefix;
 } index_files[] = {
-	[KMOD_INDEX_MODULES_DEP] = { .fn = "modules.dep", .prefix = "" },
-	[KMOD_INDEX_MODULES_ALIAS] = { .fn = "modules.alias", .prefix = "alias " },
-	[KMOD_INDEX_MODULES_SYMBOL] = { .fn = "modules.symbols", .prefix = "alias "},
-	[KMOD_INDEX_MODULES_BUILTIN_ALIAS] = { .fn = "modules.builtin.alias", .prefix = "" },
-	[KMOD_INDEX_MODULES_BUILTIN] = { .fn = "modules.builtin", .prefix = ""},
+	// clang-format off
+	[KMOD_INDEX_MODULES_DEP] = { .fn = "modules.dep" },
+	[KMOD_INDEX_MODULES_ALIAS] = { .fn = "modules.alias", .alias_prefix = true },
+	[KMOD_INDEX_MODULES_SYMBOL] = { .fn = "modules.symbols", .alias_prefix = true },
+	[KMOD_INDEX_MODULES_BUILTIN_ALIAS] = { .fn = "modules.builtin.alias" },
+	[KMOD_INDEX_MODULES_BUILTIN] = { .fn = "modules.builtin" },
+	// clang-format on
 };
 
-static const char *default_config_paths[] = {
+static const char *const default_config_paths[] = {
+	// clang-format off
 	SYSCONFDIR "/modprobe.d",
 	"/run/modprobe.d",
 	"/usr/local/lib/modprobe.d",
+	DISTCONFDIR "/modprobe.d",
 	"/lib/modprobe.d",
-	NULL
+	NULL,
+	// clang-format on
 };
 
-/**
- * kmod_ctx:
- *
- * Opaque object representing the library context.
- */
 struct kmod_ctx {
 	int refcount;
 	int log_priority;
-	void (*log_fn)(void *data,
-			int priority, const char *file, int line,
-			const char *fn, const char *format, va_list args);
+	void (*log_fn)(void *data, int priority, const char *file, int line,
+		       const char *fn, const char *format, va_list args);
 	void *log_data;
 	const void *userdata;
 	char *dirname;
+	enum kmod_file_compression_type kernel_compression;
 	struct kmod_config *config;
 	struct hash *modules_by_name;
 	struct index_mm *indexes[_KMOD_INDEX_MODULES_SIZE];
 	unsigned long long indexes_stamp[_KMOD_INDEX_MODULES_SIZE];
 };
 
-void kmod_log(const struct kmod_ctx *ctx,
-		int priority, const char *file, int line, const char *fn,
-		const char *format, ...)
+void kmod_log(const struct kmod_ctx *ctx, int priority, const char *file, int line,
+	      const char *fn, const char *format, ...)
 {
 	va_list args;
 
@@ -103,13 +80,11 @@ void kmod_log(const struct kmod_ctx *ctx,
 	va_end(args);
 }
 
-_printf_format_(6, 0)
-static void log_filep(void *data,
-			int priority, const char *file, int line,
-			const char *fn, const char *format, va_list args)
+_printf_format_(6, 0) static void log_filep(void *data, int priority, const char *file,
+					    int line, const char *fn, const char *format,
+					    va_list args)
 {
 	FILE *fp = data;
-#ifdef ENABLE_DEBUG
 	char buf[16];
 	const char *priname;
 	switch (priority) {
@@ -141,35 +116,21 @@ static void log_filep(void *data,
 		snprintf(buf, sizeof(buf), "L:%d", priority);
 		priname = buf;
 	}
-	fprintf(fp, "libkmod: %s %s:%d %s: ", priname, file, line, fn);
-#else
-	fprintf(fp, "libkmod: %s: ", fn);
-#endif
+	if (ENABLE_DEBUG == 1)
+		fprintf(fp, "libkmod: %s %s:%d %s: ", priname, file, line, fn);
+	else
+		fprintf(fp, "libkmod: %s: %s: ", priname, fn);
 	vfprintf(fp, format, args);
 }
 
-
-/**
- * kmod_get_dirname:
- * @ctx: kmod library context
- *
- * Retrieve the absolute path used for linux modules in this context. The path
- * is computed from the arguments to kmod_new().
- */
 KMOD_EXPORT const char *kmod_get_dirname(const struct kmod_ctx *ctx)
 {
+	if (ctx == NULL)
+		return NULL;
+
 	return ctx->dirname;
 }
 
-/**
- * kmod_get_userdata:
- * @ctx: kmod library context
- *
- * Retrieve stored data pointer from library context. This might be useful
- * to access from callbacks.
- *
- * Returns: stored userdata
- */
 KMOD_EXPORT void *kmod_get_userdata(const struct kmod_ctx *ctx)
 {
 	if (ctx == NULL)
@@ -177,13 +138,6 @@ KMOD_EXPORT void *kmod_get_userdata(const struct kmod_ctx *ctx)
 	return (void *)ctx->userdata;
 }
 
-/**
- * kmod_set_userdata:
- * @ctx: kmod library context
- * @userdata: data pointer
- *
- * Store custom @userdata in the library context.
- */
 KMOD_EXPORT void kmod_set_userdata(struct kmod_ctx *ctx, const void *userdata)
 {
 	if (ctx == NULL)
@@ -208,7 +162,7 @@ static int log_priority(const char *priority)
 	return 0;
 }
 
-static const char *dirname_default_prefix = "/lib/modules";
+static const char *dirname_default_prefix = MODULE_DIRECTORY;
 
 static char *get_kernel_release(const char *dirname)
 {
@@ -227,30 +181,40 @@ static char *get_kernel_release(const char *dirname)
 	return p;
 }
 
-/**
- * kmod_new:
- * @dirname: what to consider as linux module's directory, if NULL
- *           defaults to /lib/modules/`uname -r`. If it's relative,
- *           it's treated as relative to the current working directory.
- *           Otherwise, give an absolute dirname.
- * @config_paths: ordered array of paths (directories or files) where
- *                to load from user-defined configuration parameters such as
- *                alias, blacklists, commands (install, remove). If NULL
- *                defaults to /etc/modprobe.d, /run/modprobe.d,
- *                /usr/local/lib/modprobe.d and /lib/modprobe.d. Give an empty
- *                vector if configuration should not be read. This array must
- *                be null terminated.
- *
- * Create kmod library context. This reads the kmod configuration
- * and fills in the default values.
- *
- * The initial refcount is 1, and needs to be decremented to
- * release the resources of the kmod library context.
- *
- * Returns: a new kmod library context
- */
-KMOD_EXPORT struct kmod_ctx *kmod_new(const char *dirname,
-					const char * const *config_paths)
+static enum kmod_file_compression_type get_kernel_compression(struct kmod_ctx *ctx)
+{
+	const char *path = "/sys/module/compression";
+	char buf[16];
+	int fd;
+	int err;
+
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0) {
+		/* Not having the file is not an error: kernel may be too old */
+		DBG(ctx, "could not open '%s' for reading: %m\n", path);
+		return KMOD_FILE_COMPRESSION_NONE;
+	}
+
+	err = read_str_safe(fd, buf, sizeof(buf));
+	close(fd);
+	if (err < 0) {
+		ERR(ctx, "could not read from '%s': %s\n", path, strerror(-err));
+		return KMOD_FILE_COMPRESSION_NONE;
+	}
+
+	if (streq(buf, "zstd\n"))
+		return KMOD_FILE_COMPRESSION_ZSTD;
+	else if (streq(buf, "xz\n"))
+		return KMOD_FILE_COMPRESSION_XZ;
+	else if (streq(buf, "gzip\n"))
+		return KMOD_FILE_COMPRESSION_ZLIB;
+
+	ERR(ctx, "unknown kernel compression %s", buf);
+
+	return KMOD_FILE_COMPRESSION_NONE;
+}
+
+KMOD_EXPORT struct kmod_ctx *kmod_new(const char *dirname, const char *const *config_paths)
 {
 	const char *env;
 	struct kmod_ctx *ctx;
@@ -266,11 +230,17 @@ KMOD_EXPORT struct kmod_ctx *kmod_new(const char *dirname,
 	ctx->log_priority = LOG_ERR;
 
 	ctx->dirname = get_kernel_release(dirname);
+	if (ctx->dirname == NULL) {
+		ERR(ctx, "could not retrieve directory\n");
+		goto fail;
+	}
 
 	/* environment overwrites config */
 	env = secure_getenv("KMOD_LOG");
 	if (env != NULL)
 		kmod_set_log_priority(ctx, log_priority(env));
+
+	ctx->kernel_compression = get_kernel_compression(ctx);
 
 	if (config_paths == NULL)
 		config_paths = default_config_paths;
@@ -298,14 +268,6 @@ fail:
 	return NULL;
 }
 
-/**
- * kmod_ref:
- * @ctx: kmod library context
- *
- * Take a reference of the kmod library context.
- *
- * Returns: the passed kmod library context
- */
 KMOD_EXPORT struct kmod_ctx *kmod_ref(struct kmod_ctx *ctx)
 {
 	if (ctx == NULL)
@@ -314,15 +276,6 @@ KMOD_EXPORT struct kmod_ctx *kmod_ref(struct kmod_ctx *ctx)
 	return ctx;
 }
 
-/**
- * kmod_unref:
- * @ctx: kmod library context
- *
- * Drop a reference of the kmod library context. If the refcount
- * reaches zero, the resources of the context will be released.
- *
- * Returns: the passed kmod library context or NULL if it's freed
- */
 KMOD_EXPORT struct kmod_ctx *kmod_unref(struct kmod_ctx *ctx)
 {
 	if (ctx == NULL)
@@ -343,22 +296,11 @@ KMOD_EXPORT struct kmod_ctx *kmod_unref(struct kmod_ctx *ctx)
 	return NULL;
 }
 
-/**
- * kmod_set_log_fn:
- * @ctx: kmod library context
- * @log_fn: function to be called for logging messages
- * @data: data to pass to log function
- *
- * The built-in logging writes to stderr. It can be
- * overridden by a custom function, to plug log messages
- * into the user's logging functionality.
- */
 KMOD_EXPORT void kmod_set_log_fn(struct kmod_ctx *ctx,
-					void (*log_fn)(void *data,
-						int priority, const char *file,
-						int line, const char *fn,
+				 void (*log_fn)(void *data, int priority,
+						const char *file, int line, const char *fn,
 						const char *format, va_list args),
-					const void *data)
+				 const void *data)
 {
 	if (ctx == NULL)
 		return;
@@ -367,12 +309,6 @@ KMOD_EXPORT void kmod_set_log_fn(struct kmod_ctx *ctx,
 	INFO(ctx, "custom logging function %p registered\n", log_fn);
 }
 
-/**
- * kmod_get_log_priority:
- * @ctx: kmod library context
- *
- * Returns: the current logging priority
- */
 KMOD_EXPORT int kmod_get_log_priority(const struct kmod_ctx *ctx)
 {
 	if (ctx == NULL)
@@ -380,14 +316,6 @@ KMOD_EXPORT int kmod_get_log_priority(const struct kmod_ctx *ctx)
 	return ctx->log_priority;
 }
 
-/**
- * kmod_set_log_priority:
- * @ctx: kmod library context
- * @priority: the new logging priority
- *
- * Set the current logging priority. The value controls which messages
- * are logged.
- */
 KMOD_EXPORT void kmod_set_log_priority(struct kmod_ctx *ctx, int priority)
 {
 	if (ctx == NULL)
@@ -395,8 +323,7 @@ KMOD_EXPORT void kmod_set_log_priority(struct kmod_ctx *ctx, int priority)
 	ctx->log_priority = priority;
 }
 
-struct kmod_module *kmod_pool_get_module(struct kmod_ctx *ctx,
-							const char *key)
+struct kmod_module *kmod_pool_get_module(struct kmod_ctx *ctx, const char *key)
 {
 	struct kmod_module *mod;
 
@@ -407,16 +334,14 @@ struct kmod_module *kmod_pool_get_module(struct kmod_ctx *ctx,
 	return mod;
 }
 
-void kmod_pool_add_module(struct kmod_ctx *ctx, struct kmod_module *mod,
-							const char *key)
+int kmod_pool_add_module(struct kmod_ctx *ctx, struct kmod_module *mod, const char *key)
 {
 	DBG(ctx, "add %p key='%s'\n", mod, key);
 
-	hash_add(ctx->modules_by_name, key, mod);
+	return hash_add(ctx->modules_by_name, key, mod);
 }
 
-void kmod_pool_del_module(struct kmod_ctx *ctx, struct kmod_module *mod,
-							const char *key)
+void kmod_pool_del_module(struct kmod_ctx *ctx, struct kmod_module *mod, const char *key)
 {
 	DBG(ctx, "del %p key='%s'\n", mod, key);
 
@@ -424,24 +349,24 @@ void kmod_pool_del_module(struct kmod_ctx *ctx, struct kmod_module *mod,
 }
 
 static int kmod_lookup_alias_from_alias_bin(struct kmod_ctx *ctx,
-						enum kmod_index index_number,
-						const char *name,
-						struct kmod_list **list)
+					    enum kmod_index index_number,
+					    const char *name, struct kmod_list **list)
 {
 	int err, nmatch = 0;
 	struct index_file *idx;
 	struct index_value *realnames, *realname;
 
+	assert(*list == NULL);
+
 	if (ctx->indexes[index_number] != NULL) {
-		DBG(ctx, "use mmaped index '%s' for name=%s\n",
-			index_files[index_number].fn, name);
-		realnames = index_mm_searchwild(ctx->indexes[index_number],
-									name);
+		DBG(ctx, "use mmapped index '%s' for name=%s\n",
+		    index_files[index_number].fn, name);
+		realnames = index_mm_searchwild(ctx->indexes[index_number], name);
 	} else {
 		char fn[PATH_MAX];
 
 		snprintf(fn, sizeof(fn), "%s/%s.bin", ctx->dirname,
-					index_files[index_number].fn);
+			 index_files[index_number].fn);
 
 		DBG(ctx, "file=%s name=%s\n", fn, name);
 
@@ -455,6 +380,7 @@ static int kmod_lookup_alias_from_alias_bin(struct kmod_ctx *ctx,
 
 	for (realname = realnames; realname; realname = realname->next) {
 		struct kmod_module *mod;
+		struct kmod_list *node;
 
 		err = kmod_module_new_from_alias(ctx, name, realname->value, &mod);
 		if (err < 0) {
@@ -463,7 +389,14 @@ static int kmod_lookup_alias_from_alias_bin(struct kmod_ctx *ctx,
 			goto fail;
 		}
 
-		*list = kmod_list_append(*list, mod);
+		node = kmod_list_append(*list, mod);
+		if (node == NULL) {
+			ERR(ctx, "out of memory\n");
+			kmod_module_unref(mod);
+			err = -ENOMEM;
+			goto fail;
+		}
+		*list = node;
 		nmatch++;
 	}
 
@@ -471,45 +404,42 @@ static int kmod_lookup_alias_from_alias_bin(struct kmod_ctx *ctx,
 	return nmatch;
 
 fail:
-	*list = kmod_list_remove_n_latest(*list, nmatch);
+	kmod_list_release(*list, kmod_module_unref);
 	index_values_free(realnames);
 	return err;
-
 }
 
 int kmod_lookup_alias_from_symbols_file(struct kmod_ctx *ctx, const char *name,
-						struct kmod_list **list)
+					struct kmod_list **list)
 {
 	if (!strstartswith(name, "symbol:"))
 		return 0;
 
-	return kmod_lookup_alias_from_alias_bin(ctx, KMOD_INDEX_MODULES_SYMBOL,
-								name, list);
+	return kmod_lookup_alias_from_alias_bin(ctx, KMOD_INDEX_MODULES_SYMBOL, name,
+						list);
 }
 
 int kmod_lookup_alias_from_aliases_file(struct kmod_ctx *ctx, const char *name,
-						struct kmod_list **list)
+					struct kmod_list **list)
 {
-	return kmod_lookup_alias_from_alias_bin(ctx, KMOD_INDEX_MODULES_ALIAS,
-								name, list);
+	return kmod_lookup_alias_from_alias_bin(ctx, KMOD_INDEX_MODULES_ALIAS, name, list);
 }
 
-static char *lookup_builtin_file(struct kmod_ctx *ctx, const char *name)
+static char *lookup_file(struct kmod_ctx *ctx, enum kmod_index index_number,
+			 const char *name)
 {
 	char *line;
 
-	if (ctx->indexes[KMOD_INDEX_MODULES_BUILTIN]) {
-		DBG(ctx, "use mmaped index '%s' modname=%s\n",
-				index_files[KMOD_INDEX_MODULES_BUILTIN].fn,
-				name);
-		line = index_mm_search(ctx->indexes[KMOD_INDEX_MODULES_BUILTIN],
-									name);
+	if (ctx->indexes[index_number]) {
+		DBG(ctx, "use mmapped index '%s' modname=%s\n",
+		    index_files[index_number].fn, name);
+		line = index_mm_search(ctx->indexes[index_number], name);
 	} else {
 		struct index_file *idx;
 		char fn[PATH_MAX];
 
 		snprintf(fn, sizeof(fn), "%s/%s.bin", ctx->dirname,
-				index_files[KMOD_INDEX_MODULES_BUILTIN].fn);
+			 index_files[index_number].fn);
 		DBG(ctx, "file=%s modname=%s\n", fn, name);
 
 		idx = index_file_open(fn);
@@ -525,17 +455,20 @@ static char *lookup_builtin_file(struct kmod_ctx *ctx, const char *name)
 	return line;
 }
 
-int kmod_lookup_alias_from_kernel_builtin_file(struct kmod_ctx *ctx,
-						const char *name,
-						struct kmod_list **list)
+static bool lookup_builtin_file(struct kmod_ctx *ctx, const char *name)
+{
+	_cleanup_free_ char *line = lookup_file(ctx, KMOD_INDEX_MODULES_BUILTIN, name);
+
+	return line;
+}
+
+int kmod_lookup_alias_from_kernel_builtin_file(struct kmod_ctx *ctx, const char *name,
+					       struct kmod_list **list)
 {
 	struct kmod_list *l;
 	int ret;
 
-	assert(*list == NULL);
-
-	ret = kmod_lookup_alias_from_alias_bin(ctx,
-					       KMOD_INDEX_MODULES_BUILTIN_ALIAS,
+	ret = kmod_lookup_alias_from_alias_bin(ctx, KMOD_INDEX_MODULES_BUILTIN_ALIAS,
 					       name, list);
 
 	kmod_list_foreach(l, *list) {
@@ -547,81 +480,54 @@ int kmod_lookup_alias_from_kernel_builtin_file(struct kmod_ctx *ctx,
 }
 
 int kmod_lookup_alias_from_builtin_file(struct kmod_ctx *ctx, const char *name,
-						struct kmod_list **list)
+					struct kmod_list **list)
 {
-	char *line;
-	int err = 0;
-
 	assert(*list == NULL);
 
-	line = lookup_builtin_file(ctx, name);
-	if (line != NULL) {
+	if (lookup_builtin_file(ctx, name)) {
 		struct kmod_module *mod;
+		struct kmod_list *node;
+		int err;
 
 		err = kmod_module_new_from_name(ctx, name, &mod);
 		if (err < 0) {
-			ERR(ctx, "Could not create module from name %s: %s\n",
-							name, strerror(-err));
-			goto finish;
+			ERR(ctx, "Could not create module from name %s: %s\n", name,
+			    strerror(-err));
+			return err;
 		}
 
 		/* already mark it as builtin since it's being created from
 		 * this index */
 		kmod_module_set_builtin(mod, true);
-		*list = kmod_list_append(*list, mod);
-		if (*list == NULL)
-			err = -ENOMEM;
+		node = kmod_list_append(*list, mod);
+		if (node == NULL) {
+			ERR(ctx, "out of memory\n");
+			kmod_module_unref(mod);
+			return -ENOMEM;
+		}
+		*list = node;
 	}
 
-finish:
-	free(line);
-	return err;
+	return 0;
 }
 
 bool kmod_lookup_alias_is_builtin(struct kmod_ctx *ctx, const char *name)
 {
-	_cleanup_free_ char *line;
-
-	line = lookup_builtin_file(ctx, name);
-
-	return line != NULL;
+	return lookup_builtin_file(ctx, name);
 }
 
 char *kmod_search_moddep(struct kmod_ctx *ctx, const char *name)
 {
-	struct index_file *idx;
-	char fn[PATH_MAX];
-	char *line;
-
-	if (ctx->indexes[KMOD_INDEX_MODULES_DEP]) {
-		DBG(ctx, "use mmaped index '%s' modname=%s\n",
-				index_files[KMOD_INDEX_MODULES_DEP].fn, name);
-		return index_mm_search(ctx->indexes[KMOD_INDEX_MODULES_DEP],
-									name);
-	}
-
-	snprintf(fn, sizeof(fn), "%s/%s.bin", ctx->dirname,
-					index_files[KMOD_INDEX_MODULES_DEP].fn);
-
-	DBG(ctx, "file=%s modname=%s\n", fn, name);
-
-	idx = index_file_open(fn);
-	if (idx == NULL) {
-		DBG(ctx, "could not open moddep file '%s'\n", fn);
-		return NULL;
-	}
-
-	line = index_search(idx, name);
-	index_file_close(idx);
-
-	return line;
+	return lookup_file(ctx, KMOD_INDEX_MODULES_DEP, name);
 }
 
 int kmod_lookup_alias_from_moddep_file(struct kmod_ctx *ctx, const char *name,
-						struct kmod_list **list)
+				       struct kmod_list **list)
 {
 	char *line;
 	int n = 0;
+
+	assert(*list == NULL);
 
 	/*
 	 * Module names do not contain ':'. Return early if we know it will
@@ -633,15 +539,23 @@ int kmod_lookup_alias_from_moddep_file(struct kmod_ctx *ctx, const char *name,
 	line = kmod_search_moddep(ctx, name);
 	if (line != NULL) {
 		struct kmod_module *mod;
+		struct kmod_list *node;
 
 		n = kmod_module_new_from_name(ctx, name, &mod);
 		if (n < 0) {
-			ERR(ctx, "Could not create module from name %s: %s\n",
-			    name, strerror(-n));
+			ERR(ctx, "Could not create module from name %s: %s\n", name,
+			    strerror(-n));
 			goto finish;
 		}
 
-		*list = kmod_list_append(*list, mod);
+		node = kmod_list_append(*list, mod);
+		if (node == NULL) {
+			ERR(ctx, "out of memory\n");
+			kmod_module_unref(mod);
+			n = -ENOMEM;
+			goto finish;
+		}
+		*list = node;
 		kmod_module_parse_depline(mod, line);
 	}
 
@@ -652,11 +566,13 @@ finish:
 }
 
 int kmod_lookup_alias_from_config(struct kmod_ctx *ctx, const char *name,
-						struct kmod_list **list)
+				  struct kmod_list **list)
 {
 	struct kmod_config *config = ctx->config;
 	struct kmod_list *l;
 	int err, nmatch = 0;
+
+	assert(*list == NULL);
 
 	kmod_list_foreach(l, config->aliases) {
 		const char *aliasname = kmod_alias_get_name(l);
@@ -664,16 +580,24 @@ int kmod_lookup_alias_from_config(struct kmod_ctx *ctx, const char *name,
 
 		if (fnmatch(aliasname, name, 0) == 0) {
 			struct kmod_module *mod;
+			struct kmod_list *node;
 
-			err = kmod_module_new_from_alias(ctx, aliasname,
-								modname, &mod);
+			err = kmod_module_new_from_alias(ctx, aliasname, modname, &mod);
 			if (err < 0) {
-				ERR(ctx, "Could not create module for alias=%s modname=%s: %s\n",
+				ERR(ctx,
+				    "Could not create module for alias=%s modname=%s: %s\n",
 				    name, modname, strerror(-err));
 				goto fail;
 			}
 
-			*list = kmod_list_append(*list, mod);
+			node = kmod_list_append(*list, mod);
+			if (node == NULL) {
+				ERR(ctx, "out of memory\n");
+				kmod_module_unref(mod);
+				err = -ENOMEM;
+				goto fail;
+			}
+			*list = node;
 			nmatch++;
 		}
 	}
@@ -681,16 +605,18 @@ int kmod_lookup_alias_from_config(struct kmod_ctx *ctx, const char *name,
 	return nmatch;
 
 fail:
-	*list = kmod_list_remove_n_latest(*list, nmatch);
+	kmod_list_release(*list, kmod_module_unref);
 	return err;
 }
 
 int kmod_lookup_alias_from_commands(struct kmod_ctx *ctx, const char *name,
-						struct kmod_list **list)
+				    struct kmod_list **list)
 {
 	struct kmod_config *config = ctx->config;
 	struct kmod_list *l, *node;
 	int err, nmatch = 0;
+
+	assert(*list == NULL);
 
 	kmod_list_foreach(l, config->install_commands) {
 		const char *modname = kmod_command_get_modname(l);
@@ -709,6 +635,7 @@ int kmod_lookup_alias_from_commands(struct kmod_ctx *ctx, const char *name,
 			node = kmod_list_append(*list, mod);
 			if (node == NULL) {
 				ERR(ctx, "out of memory\n");
+				kmod_module_unref(mod);
 				return -ENOMEM;
 			}
 
@@ -745,6 +672,7 @@ int kmod_lookup_alias_from_commands(struct kmod_ctx *ctx, const char *name,
 			node = kmod_list_append(*list, mod);
 			if (node == NULL) {
 				ERR(ctx, "out of memory\n");
+				kmod_module_unref(mod);
 				return -ENOMEM;
 			}
 
@@ -797,18 +725,6 @@ static bool is_cache_invalid(const char *path, unsigned long long stamp)
 	return false;
 }
 
-/**
- * kmod_validate_resources:
- * @ctx: kmod library context
- *
- * Check if indexes and configuration files changed on disk and the current
- * context is not valid anymore.
- *
- * Returns: KMOD_RESOURCES_OK if resources are still valid,
- * KMOD_RESOURCES_MUST_RELOAD if it's sufficient to call
- * kmod_unload_resources() and kmod_load_resources() or
- * KMOD_RESOURCES_MUST_RECREATE if @ctx must be re-created.
- */
 KMOD_EXPORT int kmod_validate_resources(struct kmod_ctx *ctx)
 {
 	struct kmod_list *l;
@@ -830,8 +746,7 @@ KMOD_EXPORT int kmod_validate_resources(struct kmod_ctx *ctx)
 		if (ctx->indexes[i] == NULL)
 			continue;
 
-		snprintf(path, sizeof(path), "%s/%s.bin", ctx->dirname,
-						index_files[i].fn);
+		snprintf(path, sizeof(path), "%s/%s.bin", ctx->dirname, index_files[i].fn);
 
 		if (is_cache_invalid(path, ctx->indexes_stamp[i]))
 			return KMOD_RESOURCES_MUST_RELOAD;
@@ -840,21 +755,6 @@ KMOD_EXPORT int kmod_validate_resources(struct kmod_ctx *ctx)
 	return KMOD_RESOURCES_OK;
 }
 
-/**
- * kmod_load_resources:
- * @ctx: kmod library context
- *
- * Load indexes and keep them open in @ctx. This way it's faster to lookup
- * information within the indexes. If this function is not called before a
- * search, the necessary index is always opened and closed.
- *
- * If user will do more than one or two lookups, insertions, deletions, most
- * likely it's good to call this function first. Particularly in a daemon like
- * udev that on bootup issues hundreds of calls to lookup the index, calling
- * this function will speedup the searches.
- *
- * Returns: 0 on success or < 0 otherwise.
- */
 KMOD_EXPORT int kmod_load_resources(struct kmod_ctx *ctx)
 {
 	int ret = 0;
@@ -867,15 +767,12 @@ KMOD_EXPORT int kmod_load_resources(struct kmod_ctx *ctx)
 		char path[PATH_MAX];
 
 		if (ctx->indexes[i] != NULL) {
-			INFO(ctx, "Index %s already loaded\n",
-							index_files[i].fn);
+			INFO(ctx, "Index %s already loaded\n", index_files[i].fn);
 			continue;
 		}
 
-		snprintf(path, sizeof(path), "%s/%s.bin", ctx->dirname,
-							index_files[i].fn);
-		ret = index_mm_open(ctx, path, &ctx->indexes_stamp[i],
-				    &ctx->indexes[i]);
+		snprintf(path, sizeof(path), "%s/%s.bin", ctx->dirname, index_files[i].fn);
+		ret = index_mm_open(ctx, path, &ctx->indexes_stamp[i], &ctx->indexes[i]);
 
 		/*
 		 * modules.builtin.alias are considered optional since it's
@@ -895,21 +792,6 @@ KMOD_EXPORT int kmod_load_resources(struct kmod_ctx *ctx)
 	return ret;
 }
 
-/**
- * kmod_unload_resources:
- * @ctx: kmod library context
- *
- * Unload all the indexes. This will free the resources to maintain the index
- * open and all subsequent searches will need to open and close the index.
- *
- * User is free to call kmod_load_resources() and kmod_unload_resources() as
- * many times as wanted during the lifecycle of @ctx. For example, if a daemon
- * knows that when starting up it will lookup a lot of modules, it could call
- * kmod_load_resources() and after the first burst of searches is gone, it
- * could free the resources by calling kmod_unload_resources().
- *
- * Returns: 0 on success or < 0 otherwise.
- */
 KMOD_EXPORT void kmod_unload_resources(struct kmod_ctx *ctx)
 {
 	size_t i;
@@ -926,41 +808,29 @@ KMOD_EXPORT void kmod_unload_resources(struct kmod_ctx *ctx)
 	}
 }
 
-/**
- * kmod_dump_index:
- * @ctx: kmod library context
- * @type: index to dump, valid indexes are
- * KMOD_INDEX_MODULES_DEP: index of module dependencies;
- * KMOD_INDEX_MODULES_ALIAS: index of module aliases;
- * KMOD_INDEX_MODULES_SYMBOL: index of symbol aliases;
- * KMOD_INDEX_MODULES_BUILTIN: index of builtin module.
- * @fd: file descriptor to dump index to
- *
- * Dump index to file descriptor. Note that this function doesn't use stdio.h
- * so call fflush() before calling this function to be sure data is written in
- * order.
- *
- * Returns: 0 on success or < 0 otherwise.
- */
-KMOD_EXPORT int kmod_dump_index(struct kmod_ctx *ctx, enum kmod_index type,
-									int fd)
+KMOD_EXPORT int kmod_dump_index(struct kmod_ctx *ctx, enum kmod_index type, int fd)
 {
 	if (ctx == NULL)
 		return -ENOSYS;
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wtautological-unsigned-enum-zero-compare"
+#endif
 	if (type < 0 || type >= _KMOD_INDEX_MODULES_SIZE)
 		return -ENOENT;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 	if (ctx->indexes[type] != NULL) {
-		DBG(ctx, "use mmaped index '%s'\n", index_files[type].fn);
-		index_mm_dump(ctx->indexes[type], fd,
-						index_files[type].prefix);
+		DBG(ctx, "use mmapped index '%s'\n", index_files[type].fn);
+		index_mm_dump(ctx->indexes[type], fd, index_files[type].alias_prefix);
 	} else {
 		char fn[PATH_MAX];
 		struct index_file *idx;
 
-		snprintf(fn, sizeof(fn), "%s/%s.bin", ctx->dirname,
-						index_files[type].fn);
+		snprintf(fn, sizeof(fn), "%s/%s.bin", ctx->dirname, index_files[type].fn);
 
 		DBG(ctx, "file=%s\n", fn);
 
@@ -968,7 +838,7 @@ KMOD_EXPORT int kmod_dump_index(struct kmod_ctx *ctx, enum kmod_index type,
 		if (idx == NULL)
 			return -ENOSYS;
 
-		index_dump(idx, fd, index_files[type].prefix);
+		index_dump(idx, fd, index_files[type].alias_prefix);
 		index_file_close(idx);
 	}
 
@@ -978,4 +848,9 @@ KMOD_EXPORT int kmod_dump_index(struct kmod_ctx *ctx, enum kmod_index type,
 const struct kmod_config *kmod_get_config(const struct kmod_ctx *ctx)
 {
 	return ctx->config;
+}
+
+enum kmod_file_compression_type kmod_get_kernel_compression(const struct kmod_ctx *ctx)
+{
+	return ctx->kernel_compression;
 }

@@ -3,11 +3,30 @@
 set -e
 
 oldpwd=$(pwd)
-topdir=$(dirname $0)
+
+if [ -n "$MESON_DIST_ROOT" ]; then
+    topdir="$MESON_DIST_ROOT"
+    gtkdocize_args="--copy"
+    autoreconf_args=
+else
+    topdir=$(dirname $0)
+    gtkdocize_args=
+    autoreconf_args="--symlink"
+fi
+
 cd $topdir
 
-gtkdocize --docdir libkmod/docs || touch libkmod/docs/gtk-doc.make
-autoreconf --force --install --symlink
+gtkdocize ${gtkdocize_args} --docdir libkmod/docs || NO_GTK_DOC="yes"
+if [ "x$NO_GTK_DOC" = "xyes" ]
+then
+	for f in libkmod/docs/gtk-doc.make m4/gtk-doc.m4
+	do
+		rm -f $f
+		touch $f
+	done
+fi
+
+autoreconf --force --install ${autoreconf_args}
 
 libdir() {
         echo $(cd "$1/$(gcc -print-multi-os-directory)"; pwd)
@@ -23,17 +42,11 @@ if [ -f "$topdir/.config.args" ]; then
     args="$args $(cat $topdir/.config.args)"
 fi
 
-if [ ! -L /bin ]; then
-    args="$args \
-        --with-rootlibdir=$(libdir /lib) \
-        "
-fi
-
 cd $oldpwd
 
 hackargs="\
 --enable-debug \
---enable-python \
+--enable-gtk-doc \
 --with-zstd \
 --with-xz \
 --with-zlib \

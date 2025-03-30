@@ -3,20 +3,21 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 
-#ifdef HAVE_LINUX_MODULE_H
-#include <linux/module.h>
-#endif
-
-#ifndef MODULE_INIT_IGNORE_MODVERSIONS
-# define MODULE_INIT_IGNORE_MODVERSIONS 1
-#endif
-
-#ifndef MODULE_INIT_IGNORE_VERMAGIC
-# define MODULE_INIT_IGNORE_VERMAGIC 2
-#endif
+/*
+ * Macros pulled from linux/module.h, to avoid pulling the header.
+ *
+ * In practice, very few people have it installed and distros do not install the
+ * relevant package during their build.
+ *
+ * Values are UAPI, so they cannot change.
+ */
+#define MODULE_INIT_IGNORE_MODVERSIONS 1
+#define MODULE_INIT_IGNORE_VERMAGIC 2
+#define MODULE_INIT_COMPRESSED_FILE 4
 
 #ifndef __NR_finit_module
-# define __NR_finit_module -1
+#warning __NR_finit_module missing - kmod might not work correctly
+#define __NR_finit_module -1
 #endif
 
 #ifndef HAVE_FINIT_MODULE
@@ -33,23 +34,11 @@ static inline int finit_module(int fd, const char *uargs, int flags)
 }
 #endif
 
-#if !HAVE_DECL_STRNDUPA
-#define strndupa(s, n)							\
-	({								\
-		const char *__old = (s);				\
-		size_t __len = strnlen(__old, (n));			\
-		char *__new = alloca(__len + 1);			\
-		__new[__len] = '\0';					\
-		memcpy(__new, __old, __len);				\
-	 })
-#endif
-
-#if !HAVE_DECL_BE32TOH
-#include <endian.h>
-#include <byteswap.h>
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-#define be32toh(x) bswap_32 (x)
-#else
-#define be32toh(x) (x)
-#endif
+#if !HAVE_DECL_BASENAME
+#include <string.h>
+static inline const char *basename(const char *s)
+{
+	const char *p = strrchr(s, '/');
+	return p ? p + 1 : s;
+}
 #endif

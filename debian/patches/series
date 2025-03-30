@@ -1,8 +1,1 @@
-
-# fixes to be pushed upstream
-
-# features to be pushed upstream
-
-# Debian integration
-aliases_conf
-debian_manpages
+fix_riscv64_tests

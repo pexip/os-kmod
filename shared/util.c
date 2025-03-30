@@ -1,26 +1,13 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
- * kmod - interface to kernel module operations
- *
  * Copyright (C) 2011-2013  ProFUSION embedded systems
  * Copyright (C) 2012  Lucas De Marchi <lucas.de.marchi@gmail.com>
  * Copyright (C) 2013-2014  Intel Corporation. All rights reserved.
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
 #include <ctype.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -32,24 +19,24 @@
 #include <shared/missing.h>
 #include <shared/util.h>
 
-#define USEC_PER_SEC  1000000ULL
+#define USEC_PER_SEC 1000000ULL
 #define NSEC_PER_USEC 1000ULL
 
 static const struct kmod_ext {
 	const char *ext;
 	size_t len;
 } kmod_exts[] = {
-	{KMOD_EXTENSION_UNCOMPRESSED, sizeof(KMOD_EXTENSION_UNCOMPRESSED) - 1},
-#ifdef ENABLE_ZLIB
-	{".ko.gz", sizeof(".ko.gz") - 1},
+	{ KMOD_EXTENSION_UNCOMPRESSED, sizeof(KMOD_EXTENSION_UNCOMPRESSED) - 1 },
+#if ENABLE_ZLIB
+	{ ".ko.gz", sizeof(".ko.gz") - 1 },
 #endif
-#ifdef ENABLE_XZ
-	{".ko.xz", sizeof(".ko.xz") - 1},
+#if ENABLE_XZ
+	{ ".ko.xz", sizeof(".ko.xz") - 1 },
 #endif
-#ifdef ENABLE_ZSTD
-	{".ko.zst", sizeof(".ko.zst") - 1},
+#if ENABLE_ZSTD
+	{ ".ko.zst", sizeof(".ko.zst") - 1 },
 #endif
-	{ }
+	{},
 };
 
 /* string handling functions and memory allocations                         */
@@ -172,7 +159,7 @@ char *modname_normalize(const char *modname, char buf[static PATH_MAX], size_t *
 
 char *path_to_modname(const char *path, char buf[static PATH_MAX], size_t *len)
 {
-	char *modname;
+	const char *modname;
 
 	modname = basename(path);
 	if (modname == NULL || modname[0] == '\0')
@@ -197,6 +184,33 @@ bool path_ends_with_kmod_ext(const char *path, size_t len)
 
 /* read-like and fread-like functions                                       */
 /* ************************************************************************ */
+ssize_t pread_str_safe(int fd, char *buf, size_t buflen, off_t off)
+{
+	size_t todo = buflen - 1;
+	size_t done = 0;
+
+	assert_cc(EAGAIN == EWOULDBLOCK);
+
+	do {
+		ssize_t r = pread(fd, buf + done, todo, off + done);
+
+		if (r == 0)
+			break;
+		else if (r > 0) {
+			todo -= r;
+			done += r;
+		} else {
+			if (errno == EAGAIN || errno == EINTR)
+				continue;
+			else
+				return -errno;
+		}
+	} while (todo > 0);
+
+	buf[done] = '\0';
+	return done;
+}
+
 ssize_t read_str_safe(int fd, char *buf, size_t buflen)
 {
 	size_t todo = buflen - 1;
@@ -299,17 +313,17 @@ int read_str_ulong(int fd, unsigned long *value, int base)
  */
 char *freadline_wrapped(FILE *fp, unsigned int *linenum)
 {
-	int size = 256;
-	int i = 0, n = 0;
+	size_t i = 0, size = 256;
+	unsigned int n = 0;
 	_cleanup_free_ char *buf = malloc(size);
 
 	if (buf == NULL)
 		return NULL;
 
-	for(;;) {
+	for (;;) {
 		int ch = getc_unlocked(fp);
 
-		switch(ch) {
+		switch (ch) {
 		case EOF:
 			if (i == 0)
 				return NULL;
@@ -319,11 +333,12 @@ char *freadline_wrapped(FILE *fp, unsigned int *linenum)
 			n++;
 
 			{
-				char *ret = buf;
+				char *ret = TAKE_PTR(buf);
+
 				ret[i] = '\0';
-				buf = NULL;
 				if (linenum)
 					*linenum += n;
+
 				return ret;
 			}
 
@@ -332,6 +347,8 @@ char *freadline_wrapped(FILE *fp, unsigned int *linenum)
 
 			if (ch == '\n') {
 				n++;
+				continue;
+			} else if (ch == EOF) {
 				continue;
 			}
 			/* else fall through */
@@ -354,13 +371,6 @@ char *freadline_wrapped(FILE *fp, unsigned int *linenum)
 /* path handling functions                                                  */
 /* ************************************************************************ */
 
-bool path_is_absolute(const char *p)
-{
-	assert(p != NULL);
-
-	return p[0] == '/';
-}
-
 char *path_make_absolute_cwd(const char *p)
 {
 	_cleanup_free_ char *cwd = NULL;
@@ -382,7 +392,8 @@ char *path_make_absolute_cwd(const char *p)
 	if (r == NULL)
 		return NULL;
 
-	cwd = NULL;
+	TAKE_PTR(cwd);
+
 	r[cwdlen] = '/';
 	memcpy(&r[cwdlen + 1], p, plen + 1);
 
@@ -401,9 +412,14 @@ static inline int is_dir(const char *path)
 
 int mkdir_p(const char *path, int len, mode_t mode)
 {
-	char *start, *end;
+	_cleanup_free_ char *start;
+	char *end;
 
-	start = strndupa(path, len);
+	_clang_suppress_alloc_ start = memdup(path, len + 1);
+	if (!start)
+		return -ENOMEM;
+
+	start[len] = '\0';
 	end = start + len;
 
 	/*
@@ -460,16 +476,16 @@ int mkdir_parents(const char *path, mode_t mode)
 	return mkdir_p(path, end - path, mode);
 }
 
-unsigned long long ts_usec(const struct timespec *ts)
+static unsigned long long ts_usec(const struct timespec *ts)
 {
-	return (unsigned long long) ts->tv_sec * USEC_PER_SEC +
-	       (unsigned long long) ts->tv_nsec / NSEC_PER_USEC;
+	return (unsigned long long)ts->tv_sec * USEC_PER_SEC +
+	       (unsigned long long)ts->tv_nsec / NSEC_PER_USEC;
 }
 
-unsigned long long ts_msec(const struct timespec *ts)
+static unsigned long long ts_msec(const struct timespec *ts)
 {
-	return (unsigned long long) ts->tv_sec * MSEC_PER_SEC +
-	       (unsigned long long) ts->tv_nsec / NSEC_PER_MSEC;
+	return (unsigned long long)ts->tv_sec * MSEC_PER_SEC +
+	       (unsigned long long)ts->tv_nsec / NSEC_PER_MSEC;
 }
 
 static struct timespec msec_ts(unsigned long long msec)
@@ -496,8 +512,7 @@ int sleep_until_msec(unsigned long long msec)
 /*
  * Exponential retry backoff with tail
  */
-unsigned long long get_backoff_delta_msec(unsigned long long t0,
-					  unsigned long long tend,
+unsigned long long get_backoff_delta_msec(unsigned long long t0, unsigned long long tend,
 					  unsigned long long *delta)
 {
 	unsigned long long t;
@@ -543,6 +558,49 @@ unsigned long long stat_mstamp(const struct stat *st)
 #ifdef HAVE_STRUCT_STAT_ST_MTIM
 	return ts_usec(&st->st_mtim);
 #else
-	return (unsigned long long) st->st_mtime;
+	return (unsigned long long)st->st_mtime;
 #endif
+}
+
+static int dlsym_manyv(void *dl, va_list ap)
+{
+	void (**fn)(void);
+
+	while ((fn = va_arg(ap, typeof(fn)))) {
+		const char *symbol;
+
+		symbol = va_arg(ap, typeof(symbol));
+		*fn = dlsym(dl, symbol);
+		if (!*fn)
+			return -ENXIO;
+	}
+
+	return 0;
+}
+
+int dlsym_many(void **dlp, const char *filename, ...)
+{
+	va_list ap;
+	void *dl;
+	int r;
+
+	if (*dlp)
+		return 0;
+
+	dl = dlopen(filename, RTLD_LAZY);
+	if (!dl)
+		return -ENOENT;
+
+	va_start(ap, filename);
+	r = dlsym_manyv(dl, ap);
+	va_end(ap);
+
+	if (r < 0) {
+		dlclose(dl);
+		return r;
+	}
+
+	*dlp = dl;
+
+	return 1;
 }

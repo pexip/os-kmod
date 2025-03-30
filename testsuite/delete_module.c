@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Copyright (C) 2012-2013  ProFUSION embedded systems
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
@@ -75,7 +63,7 @@ static void parse_retcodes(struct mod **_modules, const char *s)
 		if (end == p || *end != ':')
 			break;
 
-		ret = (int) l;
+		ret = (int)l;
 		p = end + 1;
 
 		l = strtol(p, &end, 0);
@@ -84,7 +72,7 @@ static void parse_retcodes(struct mod **_modules, const char *s)
 		else if (*end != '\0')
 			break;
 
-		errcode = (int) l;
+		errcode = (int)l;
 
 		mod = malloc(sizeof(*mod) + modnamelen + 1);
 		if (mod == NULL)
@@ -123,15 +111,14 @@ static void init_retcodes(void)
 	s = getenv(S_TC_DELETE_MODULE_RETCODES);
 	if (s == NULL) {
 		ERR("TRAP delete_module(): missing export %s?\n",
-						S_TC_DELETE_MODULE_RETCODES);
+		    S_TC_DELETE_MODULE_RETCODES);
 	}
 
 	parse_retcodes(&modules, s);
 
 	for (mod = modules; mod != NULL; mod = mod->next) {
 		LOG("Added module to test delete_module:\n");
-		LOG("\tname=%s ret=%d errcode=%d\n",
-		    mod->name, mod->ret, mod->errcode);
+		LOG("\tname=%s ret=%d errcode=%d\n", mod->name, mod->ret, mod->errcode);
 	}
 }
 

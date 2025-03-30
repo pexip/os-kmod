@@ -1,25 +1,11 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
- * libkmod - module signature display
- *
  * Copyright (C) 2013 Michal Marek, SUSE
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <endian.h>
 #include <inttypes.h>
-#ifdef ENABLE_OPENSSL
+#if ENABLE_OPENSSL
 #include <openssl/pkcs7.h>
 #include <openssl/ssl.h>
 #endif
@@ -39,12 +25,12 @@
 enum pkey_algo {
 	PKEY_ALGO_DSA,
 	PKEY_ALGO_RSA,
-	PKEY_ALGO__LAST
+	PKEY_ALGO__LAST,
 };
 
 static const char *const pkey_algo[PKEY_ALGO__LAST] = {
-	[PKEY_ALGO_DSA]		= "DSA",
-	[PKEY_ALGO_RSA]		= "RSA",
+	[PKEY_ALGO_DSA] = "DSA",
+	[PKEY_ALGO_RSA] = "RSA",
 };
 
 enum pkey_hash_algo {
@@ -57,45 +43,47 @@ enum pkey_hash_algo {
 	PKEY_HASH_SHA512,
 	PKEY_HASH_SHA224,
 	PKEY_HASH_SM3,
-	PKEY_HASH__LAST
+	PKEY_HASH__LAST,
 };
 
 const char *const pkey_hash_algo[PKEY_HASH__LAST] = {
-	[PKEY_HASH_MD4]		= "md4",
-	[PKEY_HASH_MD5]		= "md5",
-	[PKEY_HASH_SHA1]	= "sha1",
-	[PKEY_HASH_RIPE_MD_160]	= "rmd160",
-	[PKEY_HASH_SHA256]	= "sha256",
-	[PKEY_HASH_SHA384]	= "sha384",
-	[PKEY_HASH_SHA512]	= "sha512",
-	[PKEY_HASH_SHA224]	= "sha224",
-	[PKEY_HASH_SM3]		= "sm3",
+	// clang-format off
+	[PKEY_HASH_MD4] = "md4",
+	[PKEY_HASH_MD5] = "md5",
+	[PKEY_HASH_SHA1] = "sha1",
+	[PKEY_HASH_RIPE_MD_160] = "rmd160",
+	[PKEY_HASH_SHA256] = "sha256",
+	[PKEY_HASH_SHA384] = "sha384",
+	[PKEY_HASH_SHA512] = "sha512",
+	[PKEY_HASH_SHA224] = "sha224",
+	[PKEY_HASH_SM3] = "sm3",
+	// clang-format on
 };
 
 enum pkey_id_type {
-	PKEY_ID_PGP,		/* OpenPGP generated key ID */
-	PKEY_ID_X509,		/* X.509 arbitrary subjectKeyIdentifier */
-	PKEY_ID_PKCS7,		/* Signature in PKCS#7 message */
-	PKEY_ID_TYPE__LAST
+	PKEY_ID_PGP, /* OpenPGP generated key ID */
+	PKEY_ID_X509, /* X.509 arbitrary subjectKeyIdentifier */
+	PKEY_ID_PKCS7, /* Signature in PKCS#7 message */
+	PKEY_ID_TYPE__LAST,
 };
 
 const char *const pkey_id_type[PKEY_ID_TYPE__LAST] = {
-	[PKEY_ID_PGP]		= "PGP",
-	[PKEY_ID_X509]		= "X509",
-	[PKEY_ID_PKCS7]		= "PKCS#7",
+	[PKEY_ID_PGP] = "PGP",
+	[PKEY_ID_X509] = "X509",
+	[PKEY_ID_PKCS7] = "PKCS#7",
 };
 
 /*
  * Module signature information block.
  */
 struct module_signature {
-	uint8_t algo;        /* Public-key crypto algorithm [enum pkey_algo] */
-	uint8_t hash;        /* Digest algorithm [enum pkey_hash_algo] */
-	uint8_t id_type;     /* Key identifier type [enum pkey_id_type] */
-	uint8_t signer_len;  /* Length of signer's name */
-	uint8_t key_id_len;  /* Length of key identifier */
+	uint8_t algo; /* Public-key crypto algorithm [enum pkey_algo] */
+	uint8_t hash; /* Digest algorithm [enum pkey_hash_algo] */
+	uint8_t id_type; /* Key identifier type [enum pkey_id_type] */
+	uint8_t signer_len; /* Length of signer's name */
+	uint8_t key_id_len; /* Length of key identifier */
 	uint8_t __pad[3];
-	uint32_t sig_len;    /* Length of signature data (big endian) */
+	uint32_t sig_len; /* Length of signature data (big endian) */
 };
 
 static bool fill_default(const char *mem, off_t size,
@@ -121,12 +109,13 @@ static bool fill_default(const char *mem, off_t size,
 	return true;
 }
 
-#ifdef ENABLE_OPENSSL
+#if ENABLE_OPENSSL
 
 struct pkcs7_private {
 	PKCS7 *pkcs7;
 	unsigned char *key_id;
 	BIGNUM *sno;
+	char *hash_algo;
 };
 
 static void pkcs7_free(void *s)
@@ -137,40 +126,9 @@ static void pkcs7_free(void *s)
 	PKCS7_free(pvt->pkcs7);
 	BN_free(pvt->sno);
 	free(pvt->key_id);
+	free(pvt->hash_algo);
 	free(pvt);
 	si->private = NULL;
-}
-
-static int obj_to_hash_algo(const ASN1_OBJECT *o)
-{
-	int nid;
-
-	nid = OBJ_obj2nid(o);
-	switch (nid) {
-	case NID_md4:
-		return PKEY_HASH_MD4;
-	case NID_md5:
-		return PKEY_HASH_MD5;
-	case NID_sha1:
-		return PKEY_HASH_SHA1;
-	case NID_ripemd160:
-		return PKEY_HASH_RIPE_MD_160;
-	case NID_sha256:
-		return PKEY_HASH_SHA256;
-	case NID_sha384:
-		return PKEY_HASH_SHA384;
-	case NID_sha512:
-		return PKEY_HASH_SHA512;
-	case NID_sha224:
-		return PKEY_HASH_SHA224;
-# ifndef OPENSSL_NO_SM3
-	case NID_sm3:
-		return PKEY_HASH_SM3;
-# endif
-	default:
-		return -1;
-	}
-	return -1;
 }
 
 static const char *x509_name_to_str(X509_NAME *name)
@@ -198,13 +156,12 @@ static const char *x509_name_to_str(X509_NAME *name)
 	return str;
 }
 
-static bool fill_pkcs7(const char *mem, off_t size,
-		       const struct module_signature *modsig, size_t sig_len,
-		       struct kmod_signature_info *sig_info)
+static bool fill_pkcs7(const char *mem, off_t size, const struct module_signature *modsig,
+		       size_t sig_len, struct kmod_signature_info *sig_info)
 {
 	const char *pkcs7_raw;
 	PKCS7 *pkcs7;
-	STACK_OF(PKCS7_SIGNER_INFO) *sis;
+	STACK_OF(PKCS7_SIGNER_INFO) * sis;
 	PKCS7_SIGNER_INFO *si;
 	PKCS7_ISSUER_AND_SERIAL *is;
 	X509_NAME *issuer;
@@ -219,6 +176,8 @@ static bool fill_pkcs7(const char *mem, off_t size,
 	unsigned char *key_id_str;
 	struct pkcs7_private *pvt;
 	const char *issuer_str;
+	char *hash_algo;
+	int hash_algo_len;
 
 	size -= sig_len;
 	pkcs7_raw = mem + size;
@@ -277,24 +236,37 @@ static bool fill_pkcs7(const char *mem, off_t size,
 
 	X509_ALGOR_get0(&o, NULL, NULL, dig_alg);
 
-	sig_info->hash_algo = pkey_hash_algo[obj_to_hash_algo(o)];
-	// hash algo has not been recognized
-	if (sig_info->hash_algo == NULL)
+	// Use OBJ_obj2txt to calculate string length
+	hash_algo_len = OBJ_obj2txt(NULL, 0, o, 0);
+	if (hash_algo_len < 0)
 		goto err3;
+	hash_algo = malloc(hash_algo_len + 1);
+	if (hash_algo == NULL)
+		goto err3;
+	hash_algo_len = OBJ_obj2txt(hash_algo, hash_algo_len + 1, o, 0);
+	if (hash_algo_len < 0)
+		goto err4;
+
+	// Assign libcrypto hash algo string or number
+	sig_info->hash_algo = hash_algo;
+
 	sig_info->id_type = pkey_id_type[modsig->id_type];
 
 	pvt = malloc(sizeof(*pvt));
 	if (pvt == NULL)
-		goto err3;
+		goto err4;
 
 	pvt->pkcs7 = pkcs7;
 	pvt->key_id = key_id_str;
 	pvt->sno = sno_bn;
+	pvt->hash_algo = hash_algo;
 	sig_info->private = pvt;
 
 	sig_info->free = pkcs7_free;
 
 	return true;
+err4:
+	free(hash_algo);
 err3:
 	free(key_id_str);
 err2:
@@ -306,9 +278,8 @@ err:
 
 #else /* ENABLE OPENSSL */
 
-static bool fill_pkcs7(const char *mem, off_t size,
-		       const struct module_signature *modsig, size_t sig_len,
-		       struct kmod_signature_info *sig_info)
+static bool fill_pkcs7(const char *mem, off_t size, const struct module_signature *modsig,
+		       size_t sig_len, struct kmod_signature_info *sig_info)
 {
 	sig_info->hash_algo = "unknown";
 	sig_info->id_type = pkey_id_type[modsig->id_type];
@@ -330,11 +301,12 @@ static bool fill_pkcs7(const char *mem, off_t size,
  * [ SIG_MAGIC               ]
  */
 
-bool kmod_module_signature_info(const struct kmod_file *file, struct kmod_signature_info *sig_info)
+bool kmod_module_signature_info(const struct kmod_file *file,
+				struct kmod_signature_info *sig_info)
 {
 	const char *mem;
 	off_t size;
-	const struct module_signature *modsig;
+	struct module_signature modsig;
 	size_t sig_len;
 
 	size = kmod_file_get_size(file);
@@ -348,21 +320,20 @@ bool kmod_module_signature_info(const struct kmod_file *file, struct kmod_signat
 	if (size < (off_t)sizeof(struct module_signature))
 		return false;
 	size -= sizeof(struct module_signature);
-	modsig = (struct module_signature *)(mem + size);
-	if (modsig->algo >= PKEY_ALGO__LAST ||
-			modsig->hash >= PKEY_HASH__LAST ||
-			modsig->id_type >= PKEY_ID_TYPE__LAST)
+	memcpy(&modsig, mem + size, sizeof(struct module_signature));
+	if (modsig.algo >= PKEY_ALGO__LAST || modsig.hash >= PKEY_HASH__LAST ||
+	    modsig.id_type >= PKEY_ID_TYPE__LAST)
 		return false;
-	sig_len = be32toh(get_unaligned(&modsig->sig_len));
+	sig_len = be32toh(modsig.sig_len);
 	if (sig_len == 0 ||
-	    size < (int64_t)(modsig->signer_len + modsig->key_id_len + sig_len))
+	    size < (int64_t)sig_len + modsig.signer_len + modsig.key_id_len)
 		return false;
 
-	switch (modsig->id_type) {
+	switch (modsig.id_type) {
 	case PKEY_ID_PKCS7:
-		return fill_pkcs7(mem, size, modsig, sig_len, sig_info);
+		return fill_pkcs7(mem, size, &modsig, sig_len, sig_info);
 	default:
-		return fill_default(mem, size, modsig, sig_len, sig_info);
+		return fill_default(mem, size, &modsig, sig_len, sig_info);
 	}
 }
 

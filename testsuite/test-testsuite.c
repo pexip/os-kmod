@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Copyright (C) 2012-2013  ProFUSION embedded systems
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <dirent.h>
@@ -32,7 +20,6 @@
 
 #include "testsuite.h"
 
-
 #define TEST_UNAME "4.0.20-kmod"
 static noreturn int testsuite_uname(const struct test *t)
 {
@@ -43,7 +30,7 @@ static noreturn int testsuite_uname(const struct test *t)
 		exit(EXIT_FAILURE);
 
 	if (!streq(u.release, TEST_UNAME)) {
-		char *ldpreload = getenv("LD_PRELOAD");
+		const char *ldpreload = getenv("LD_PRELOAD");
 		ERR("u.release=%s should be %s\n", u.release, TEST_UNAME);
 		ERR("LD_PRELOAD=%s\n", ldpreload);
 		exit(EXIT_FAILURE);
@@ -51,12 +38,10 @@ static noreturn int testsuite_uname(const struct test *t)
 
 	exit(EXIT_SUCCESS);
 }
-DEFINE_TEST(testsuite_uname,
-	.description = "test if trap to uname() works",
-	.config = {
-		[TC_UNAME_R] = TEST_UNAME,
-	},
-	.need_spawn = true);
+DEFINE_TEST(testsuite_uname, .description = "test if trap to uname() works",
+	    .config = {
+		    [TC_UNAME_R] = TEST_UNAME,
+	    });
 
 static int testsuite_rootfs_fopen(const struct test *t)
 {
@@ -64,9 +49,9 @@ static int testsuite_rootfs_fopen(const struct test *t)
 	char s[100];
 	int n;
 
-	fp = fopen("/lib/modules/a", "r");
+	fp = fopen(MODULE_DIRECTORY "/a", "r");
 	if (fp == NULL)
-		return EXIT_FAILURE;;
+		return EXIT_FAILURE;
 
 	n = fscanf(fp, "%s", s);
 	if (n != 1)
@@ -77,19 +62,17 @@ static int testsuite_rootfs_fopen(const struct test *t)
 
 	return EXIT_SUCCESS;
 }
-DEFINE_TEST(testsuite_rootfs_fopen,
-	.description = "test if rootfs works - fopen()",
-	.config = {
-		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
-	},
-	.need_spawn = true);
+DEFINE_TEST(testsuite_rootfs_fopen, .description = "test if rootfs works - fopen()",
+	    .config = {
+		    [TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
+	    });
 
 static int testsuite_rootfs_open(const struct test *t)
 {
 	char buf[100];
 	int fd, done;
 
-	fd = open("/lib/modules/a", O_RDONLY);
+	fd = open(MODULE_DIRECTORY "/a", O_RDONLY);
 	if (fd < 0)
 		return EXIT_FAILURE;
 
@@ -110,35 +93,26 @@ static int testsuite_rootfs_open(const struct test *t)
 
 	return EXIT_SUCCESS;
 }
-DEFINE_TEST(testsuite_rootfs_open,
-	.description = "test if rootfs works - open()",
-	.config = {
-		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
-	},
-	.need_spawn = true);
+DEFINE_TEST(testsuite_rootfs_open, .description = "test if rootfs works - open()",
+	    .config = {
+		    [TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
+	    });
 
-static int testsuite_rootfs_stat_access(const struct test *t)
+static int testsuite_rootfs_stat(const struct test *t)
 {
 	struct stat st;
 
-	if (access("/lib/modules/a", F_OK) < 0) {
-		ERR("access failed: %m\n");
-		return EXIT_FAILURE;
-	}
-
-	if (stat("/lib/modules/a", &st) < 0) {
+	if (stat(MODULE_DIRECTORY "/a", &st) < 0) {
 		ERR("stat failed: %m\n");
 		return EXIT_FAILURE;
 	}
 
 	return EXIT_SUCCESS;
 }
-DEFINE_TEST(testsuite_rootfs_stat_access,
-	.description = "test if rootfs works - stat() and access()",
-	.config = {
-		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
-	},
-	.need_spawn = true);
+DEFINE_TEST(testsuite_rootfs_stat, .description = "test if rootfs works - stat()",
+	    .config = {
+		    [TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
+	    });
 
 static int testsuite_rootfs_opendir(const struct test *t)
 {
@@ -153,11 +127,9 @@ static int testsuite_rootfs_opendir(const struct test *t)
 	closedir(d);
 	return EXIT_SUCCESS;
 }
-DEFINE_TEST(testsuite_rootfs_opendir,
-	.description = "test if rootfs works - opendir()",
-	.config = {
-		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
-	},
-	.need_spawn = true);
+DEFINE_TEST(testsuite_rootfs_opendir, .description = "test if rootfs works - opendir()",
+	    .config = {
+		    [TC_ROOTFS] = TESTSUITE_ROOTFS "test-rootfs/",
+	    });
 
 TESTSUITE_MAIN();

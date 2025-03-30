@@ -1,1 +1,2 @@
-extra/*.5
+usr/share/man/man5/*.5
+usr/share/man/man8/*.8
