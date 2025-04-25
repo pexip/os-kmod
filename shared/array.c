@@ -1,40 +1,40 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
- * libkmod - interface to kernel module operations
- *
  * Copyright (C) 2011-2013  ProFUSION embedded systems
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
 #include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <shared/array.h>
+#include <shared/util.h>
 
 /* basic pointer array growing in steps */
 
-
 static int array_realloc(struct array *array, size_t new_total)
 {
-	void *tmp = realloc(array->array, sizeof(void *) * new_total);
+	size_t total_size;
+	void *tmp;
+
+	if (umulsz_overflow(sizeof(void *), new_total, &total_size))
+		return -ENOMEM;
+	tmp = realloc(array->array, total_size);
 	if (tmp == NULL)
 		return -ENOMEM;
 	array->array = tmp;
 	array->total = new_total;
 	return 0;
+}
+
+static void array_trim(struct array *array)
+{
+	if (array->count + array->step < array->total) {
+		/* ignore error */
+		array_realloc(array, array->total - array->step);
+	}
 }
 
 void array_init(struct array *array, size_t step)
@@ -51,7 +51,12 @@ int array_append(struct array *array, const void *element)
 	size_t idx;
 
 	if (array->count + 1 >= array->total) {
-		int r = array_realloc(array, array->total + array->step);
+		size_t new_size;
+		int r;
+
+		if (uaddsz_overflow(array->total, array->step, &new_size))
+			return -ENOMEM;
+		r = array_realloc(array, new_size);
 		if (r < 0)
 			return r;
 	}
@@ -64,35 +69,39 @@ int array_append(struct array *array, const void *element)
 int array_append_unique(struct array *array, const void *element)
 {
 	void **itr = array->array;
-	void **itr_end = itr + array->count;
-	for (; itr < itr_end; itr++)
-		if (*itr == element)
-			return -EEXIST;
+
+	if (array->count != 0) {
+		void **itr_end = itr + array->count;
+
+		for (; itr < itr_end; itr++)
+			if (*itr == element)
+				return -EEXIST;
+	}
 	return array_append(array, element);
 }
 
-void array_pop(struct array *array) {
+void array_pop(struct array *array)
+{
+	if (array->count == 0)
+		return;
 	array->count--;
-	if (array->count + array->step < array->total) {
-		int r = array_realloc(array, array->total - array->step);
-		if (r < 0)
-			return;
-	}
+	array_trim(array);
 }
 
-void array_free_array(struct array *array) {
+void array_free_array(struct array *array)
+{
 	free(array->array);
+	array->array = NULL;
 	array->count = 0;
 	array->total = 0;
 }
-
 
 void array_sort(struct array *array, int (*cmp)(const void *a, const void *b))
 {
 	qsort(array->array, array->count, sizeof(void *), cmp);
 }
 
-int array_remove_at(struct array *array, unsigned int pos)
+int array_remove_at(struct array *array, size_t pos)
 {
 	if (array->count <= pos)
 		return -ENOENT;
@@ -101,13 +110,7 @@ int array_remove_at(struct array *array, unsigned int pos)
 	if (pos < array->count)
 		memmove(array->array + pos, array->array + pos + 1,
 			sizeof(void *) * (array->count - pos));
-
-	if (array->count + array->step < array->total) {
-		int r = array_realloc(array, array->total - array->step);
-		/* ignore error */
-		if (r < 0)
-			return 0;
-	}
+	array_trim(array);
 
 	return 0;
 }

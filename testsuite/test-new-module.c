@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Copyright (C) 2012-2013  ProFUSION embedded systems
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <errno.h>
@@ -29,15 +17,17 @@
 
 static int from_name(const struct test *t)
 {
-	static const char *modnames[] = {
+	static const char *const modnames[] = {
+		// clang-format off
 		"ext4",
 		"balbalbalbbalbalbalbalbalbalbal",
 		"snd-hda-intel",
 		"snd-timer",
 		"iTCO_wdt",
 		NULL,
+		// clang-format on
 	};
-	const char **p;
+	const char *const *p;
 	struct kmod_ctx *ctx;
 	struct kmod_module *mod;
 	const char *null_config = NULL;
@@ -65,18 +55,17 @@ DEFINE_TEST(from_name,
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-new-module/from_name/",
 	},
-	.need_spawn = true,
 	.output = {
 		.out = TESTSUITE_ROOTFS "test-new-module/from_name/correct.txt",
 	});
 
 static int from_alias(const struct test *t)
 {
-	static const char *modnames[] = {
+	static const char *const modnames[] = {
 		"ext4.*",
 		NULL,
 	};
-	const char **p;
+	const char *const *p;
 	struct kmod_ctx *ctx;
 	int err;
 
@@ -110,7 +99,6 @@ DEFINE_TEST(from_alias,
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-new-module/from_alias/",
 	},
-	.need_spawn = true,
 	.output = {
 		.out = TESTSUITE_ROOTFS "test-new-module/from_alias/correct.txt",
 	});

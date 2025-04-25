@@ -1,6 +1,6 @@
 AC_PREREQ(2.64)
 AC_INIT([kmod],
-	[30],
+	[34.2],
 	[linux-modules@vger.kernel.org],
 	[kmod],
 	[http://git.kernel.org/?p=utils/kernel/kmod/kmod.git])
@@ -14,12 +14,15 @@ AC_USE_SYSTEM_EXTENSIONS
 AC_SYS_LARGEFILE
 AC_PREFIX_DEFAULT([/usr])
 AM_MAINTAINER_MODE([enable])
-AM_INIT_AUTOMAKE([check-news foreign 1.11 silent-rules tar-pax no-dist-gzip dist-xz subdir-objects color-tests parallel-tests])
+AM_INIT_AUTOMAKE([foreign 1.11 silent-rules tar-pax no-dist-gzip dist-xz subdir-objects color-tests parallel-tests])
 AM_SILENT_RULES([yes])
 LT_INIT([disable-static pic-only])
 
 AS_IF([test "x$enable_static" = "xyes"], [AC_MSG_ERROR([--enable-static is not supported by kmod])])
 AS_IF([test "x$enable_largefile" = "xno"], [AC_MSG_ERROR([--disable-largefile is not supported by kmod])])
+
+module_compressions=""
+module_signatures="legacy"
 
 #####################################################################
 # Program checks and configurations
@@ -29,8 +32,6 @@ AC_PROG_SED
 AC_PROG_MKDIR_P
 AC_PROG_LN_S
 PKG_PROG_PKG_CONFIG
-AC_PATH_PROG([XSLTPROC], [xsltproc])
-AC_PATH_PROG([MKOSI], [mkosi])
 
 AC_PROG_CC_C99
 
@@ -38,26 +39,25 @@ AC_PROG_CC_C99
 # Function and structure checks
 #####################################################################
 
-AC_CHECK_FUNCS_ONCE(__xstat)
-AC_CHECK_FUNCS_ONCE([__secure_getenv secure_getenv])
-AC_CHECK_FUNCS_ONCE([finit_module])
+AC_CHECK_FUNCS_ONCE([open64 stat64 fopen64 __stat64_time64])
+AC_CHECK_FUNCS_ONCE([secure_getenv])
 
 CC_CHECK_FUNC_BUILTIN([__builtin_clz])
 CC_CHECK_FUNC_BUILTIN([__builtin_types_compatible_p])
+CC_CHECK_FUNC_BUILTIN([__builtin_uadd_overflow], [ ], [ ])
 CC_CHECK_FUNC_BUILTIN([__builtin_uaddl_overflow], [ ], [ ])
 CC_CHECK_FUNC_BUILTIN([__builtin_uaddll_overflow], [ ], [ ])
+CC_CHECK_FUNC_BUILTIN([__builtin_umul_overflow], [ ], [ ])
+CC_CHECK_FUNC_BUILTIN([__builtin_umull_overflow], [ ], [ ])
+CC_CHECK_FUNC_BUILTIN([__builtin_umulll_overflow], [ ], [ ])
 
 # dietlibc doesn't have st.st_mtim struct member
 AC_CHECK_MEMBERS([struct stat.st_mtim], [], [], [#include <sys/stat.h>])
 
-# musl 1.0 and bionic 4.4 don't have strndupa
-AC_CHECK_DECLS_ONCE([strndupa])
-
-# RHEL 5 and older do not have be32toh
-AC_CHECK_DECLS_ONCE([be32toh])
-
-# Check kernel headers
-AC_CHECK_HEADERS_ONCE([linux/module.h])
+# basename may be only available in libgen.h with the POSIX behavior,
+# not desired here
+AC_CHECK_DECLS_ONCE([[basename]], [], [], [[#include <string.h>]])
+AC_CHECK_DECLS_ONCE([[__xstat]], [], [], [[#include <sys/stat.h]])
 
 AC_MSG_CHECKING([whether _Static_assert() is supported])
 AC_COMPILE_IFELSE(
@@ -68,7 +68,8 @@ AC_COMPILE_IFELSE(
 
 AC_MSG_CHECKING([whether _Noreturn is supported])
 AC_COMPILE_IFELSE(
-	[AC_LANG_SOURCE([[_Noreturn int foo(void) { exit(0); }]])],
+	[AC_LANG_SOURCE([[#include <stdlib.h>
+	_Noreturn int foo(void) { exit(0); }]])],
         [AC_DEFINE([HAVE_NORETURN], [1], [Define if _Noreturn is available])
 	 AC_MSG_RESULT([yes])],
 	[AC_MSG_RESULT([no])])
@@ -78,51 +79,87 @@ AC_COMPILE_IFELSE(
 # --with-
 #####################################################################
 
-AC_ARG_WITH([rootlibdir],
-        AS_HELP_STRING([--with-rootlibdir=DIR], [rootfs directory to install shared libraries]),
-        [], [with_rootlibdir=$libdir])
-AC_SUBST([rootlibdir], [$with_rootlibdir])
+AC_ARG_WITH([distconfdir], AS_HELP_STRING([--with-distconfdir=DIR], [directory to search for distribution configuration files]),
+        [], [with_distconfdir='${prefix}/lib'])
+AC_SUBST([distconfdir], [$with_distconfdir])
+
+# Ideally this would be $prefix/lib/modules but default to /lib/modules for compatibility with earlier versions
+AC_ARG_WITH([module_directory],
+        AS_HELP_STRING([--with-module-directory=DIR], [directory in which to look for kernel modules @<:@default=/lib/modules@:>@]),
+        [], [with_module_directory=/lib/modules])
+AC_SUBST([module_directory], [$with_module_directory])
+
+# Check all directory arguments for consistency.
+for ac_var in	distconfdir module_directory
+do
+  eval ac_val=\$$ac_var
+  # Remove trailing slashes.
+  case $ac_val in
+    */ )
+      ac_val=`expr "X$ac_val" : 'X\(.*@<:@^/@:>@\)' \| "X$ac_val" : 'X\(.*\)'`
+      eval $ac_var=\$ac_val;;
+  esac
+  # Be sure to have absolute directory names.
+  case $ac_val in
+    @<:@\\/$@:>@* | ?:@<:@\\/@:>@* )  continue;;
+  esac
+  as_fn_error $? "expected an absolute directory name for --$ac_var: $ac_val"
+done
 
 AC_ARG_WITH([zstd],
 	AS_HELP_STRING([--with-zstd], [handle Zstandard-compressed modules @<:@default=disabled@:>@]),
 	[], [with_zstd=no])
 AS_IF([test "x$with_zstd" != "xno"], [
-	PKG_CHECK_MODULES([libzstd], [libzstd >= 1.4.4])
-	AC_DEFINE([ENABLE_ZSTD], [1], [Enable Zstandard for modules.])
+	PKG_CHECK_MODULES([libzstd], [libzstd >= 1.4.4], [LIBS="$LIBS $libzstd_LIBS"])
+	AC_DEFINE([ENABLE_ZSTD], [1], [Zstandard for modules.])
+	module_compressions="zstd $module_compressions"
 ], [
+	AC_DEFINE([ENABLE_ZSTD], [0], [Zstandard for modules.])
 	AC_MSG_NOTICE([Zstandard support not requested])
 ])
 CC_FEATURE_APPEND([with_features], [with_zstd], [ZSTD])
+AM_CONDITIONAL([ENABLE_ZSTD], [test "x$with_zstd" != "xno"])
+AC_DEFINE([ENABLE_ZSTD_DLOPEN], [0], [dlopen zstd])
 
 AC_ARG_WITH([xz],
 	AS_HELP_STRING([--with-xz], [handle Xz-compressed modules @<:@default=disabled@:>@]),
 	[], [with_xz=no])
 AS_IF([test "x$with_xz" != "xno"], [
-	PKG_CHECK_MODULES([liblzma], [liblzma >= 4.99])
-	AC_DEFINE([ENABLE_XZ], [1], [Enable Xz for modules.])
+	PKG_CHECK_MODULES([liblzma], [liblzma >= 4.99], [LIBS="$LIBS $liblzma_LIBS"])
+	AC_DEFINE([ENABLE_XZ], [1], [xz for modules.])
+	module_compressions="xz $module_compressions"
 ], [
+	AC_DEFINE([ENABLE_XZ], [0], [xz for modules.])
 	AC_MSG_NOTICE([Xz support not requested])
 ])
 CC_FEATURE_APPEND([with_features], [with_xz], [XZ])
+AM_CONDITIONAL([ENABLE_XZ], [test "x$with_xz" != "xno"])
+AC_DEFINE([ENABLE_XZ_DLOPEN], [0], [dlopen xz])
 
 AC_ARG_WITH([zlib],
 	AS_HELP_STRING([--with-zlib], [handle gzipped modules @<:@default=disabled@:>@]),
 	[], [with_zlib=no])
 AS_IF([test "x$with_zlib" != "xno"], [
-	PKG_CHECK_MODULES([zlib], [zlib])
-	AC_DEFINE([ENABLE_ZLIB], [1], [Enable zlib for modules.])
+	PKG_CHECK_MODULES([zlib], [zlib], [LIBS="$LIBS $zlib_LIBS"])
+	AC_DEFINE([ENABLE_ZLIB], [1], [zlib for modules.])
+	module_compressions="gzip $module_compressions"
 ], [
+	AC_DEFINE([ENABLE_ZLIB], [0], [zlib for modules.])
 	AC_MSG_NOTICE([zlib support not requested])
 ])
 CC_FEATURE_APPEND([with_features], [with_zlib], [ZLIB])
+AM_CONDITIONAL([ENABLE_ZLIB], [test "x$with_zlib" != "xno"])
+AC_DEFINE([ENABLE_ZLIB_DLOPEN], [0], [dlopen zlib])
 
 AC_ARG_WITH([openssl],
 	AS_HELP_STRING([--with-openssl], [handle PKCS7 signatures @<:@default=disabled@:>@]),
 	[], [with_openssl=no])
 AS_IF([test "x$with_openssl" != "xno"], [
-	PKG_CHECK_MODULES([libcrypto], [libcrypto >= 1.1.0])
-	AC_DEFINE([ENABLE_OPENSSL], [1], [Enable openssl for modinfo.])
+	PKG_CHECK_MODULES([libcrypto], [libcrypto >= 1.1.0], [LIBS="$LIBS $libcrypto_LIBS"])
+	AC_DEFINE([ENABLE_OPENSSL], [1], [openssl for modinfo.])
+	module_signatures="PKCS7 $module_signatures"
 ], [
+	AC_DEFINE([ENABLE_OPENSSL], [0], [openssl for modinfo.])
 	AC_MSG_NOTICE([openssl support not requested])
 ])
 CC_FEATURE_APPEND([with_features], [with_openssl], [LIBCRYPTO])
@@ -137,18 +174,25 @@ AC_ARG_WITH([bashcompletiondir],
 	])])
 AC_SUBST([bashcompletiondir], [$with_bashcompletiondir])
 
+AC_ARG_WITH([fishcompletiondir],
+	AS_HELP_STRING([--with-fishcompletiondir=DIR], [Fish completions directory]),
+	[],
+	[AS_IF([$($PKG_CONFIG --exists fish)], [
+		with_fishcompletiondir=$($PKG_CONFIG --variable=completionsdir fish)
+	] , [
+		with_fishcompletiondir=${datadir}/fish/vendor_functions.d
+	])])
+AC_SUBST([fishcompletiondir], [$with_fishcompletiondir])
+
+AC_ARG_WITH([zshcompletiondir],
+	AS_HELP_STRING([--with-zshcompletiondir=DIR], [Zsh completions directory]),
+	[],
+	[with_zshcompletiondir=${datadir}/zsh/site-functions])
+AC_SUBST([zshcompletiondir], [$with_zshcompletiondir])
+
 #####################################################################
 # --enable-
 #####################################################################
-
-AC_ARG_ENABLE([experimental],
-        AS_HELP_STRING([--enable-experimental], [enable experimental tools and features. Do not enable it unless you know what you are doing. @<:@default=disabled@:>@]),
-        [], enable_experimental=no)
-AM_CONDITIONAL([BUILD_EXPERIMENTAL], [test "x$enable_experimental" = "xyes"])
-AS_IF([test "x$enable_experimental" = "xyes"], [
-	AC_DEFINE(ENABLE_EXPERIMENTAL, [1], [Experimental features.])
-])
-CC_FEATURE_APPEND([with_features], [enable_experimental], [EXPERIMENTAL])
 
 AC_ARG_ENABLE([tools],
         AS_HELP_STRING([--disable-tools], [disable building tools that provide same functionality as module-init-tools @<:@default=enabled@:>@]),
@@ -158,18 +202,20 @@ AM_CONDITIONAL([BUILD_TOOLS], [test "x$enable_tools" = "xyes"])
 AC_ARG_ENABLE([manpages],
         AS_HELP_STRING([--disable-manpages], [disable manpages @<:@default=enabled@:>@]),
 	[], enable_manpages=yes)
+AS_IF([test "x$enable_manpages" = "xyes"], [
+	AC_PATH_PROG([SCDOC], [scdoc])
+	AS_IF([test "x$SCDOC" = "x"],[
+	       AC_MSG_ERROR([*** scdoc needed for building manpages. Either install it or pass --disable-manpages])
+	])])
 AM_CONDITIONAL([BUILD_MANPAGES], [test "x$enable_manpages" = "xyes"])
-
-AC_ARG_ENABLE([test-modules],
-        AS_HELP_STRING([--disable-test-modules], [disable building test modules during make check: cached modules will be used @<:@default=enabled@:>@]),
-	[], enable_test_modules=yes)
-AM_CONDITIONAL([BUILD_MODULES], [test "x$enable_test_modules" = "xyes"])
 
 AC_ARG_ENABLE([logging],
 	AS_HELP_STRING([--disable-logging], [disable system logging @<:@default=enabled@:>@]),
 	[], enable_logging=yes)
 AS_IF([test "x$enable_logging" = "xyes"], [
 	AC_DEFINE(ENABLE_LOGGING, [1], [System logging.])
+], [
+	AC_DEFINE(ENABLE_LOGGING, [0], [System logging.])
 ])
 
 AC_ARG_ENABLE([debug],
@@ -177,25 +223,10 @@ AC_ARG_ENABLE([debug],
 	[], [enable_debug=no])
 AS_IF([test "x$enable_debug" = "xyes"], [
 	AC_DEFINE(ENABLE_DEBUG, [1], [Debug messages.])
+], [
+	AC_DEFINE(ENABLE_DEBUG, [0], [Debug messages.])
 ])
-
-AC_ARG_ENABLE([python],
-	AS_HELP_STRING([--enable-python], [enable Python libkmod bindings @<:@default=disabled@:>@]),
-	[], [enable_python=no])
-AS_IF([test "x$enable_python" = "xyes"], [
-	AM_PATH_PYTHON(,,[:])
-	AC_PATH_PROG([CYTHON], [cython], [:])
-
-	PKG_CHECK_MODULES([PYTHON], [python-${PYTHON_VERSION}],
-			  [have_python=yes],
-			  [PKG_CHECK_MODULES([PYTHON], [python],
-					     [have_python=yes],
-					     [have_python=no])])
-
-	AS_IF([test "x$have_python" = xno],
-	      [AC_MSG_ERROR([*** python support requested but libraries not found])])
-])
-AM_CONDITIONAL([BUILD_PYTHON], [test "x$enable_python" = "xyes"])
+AC_DEFINE(ENABLE_ELFDBG, [0], [Debug elf parsing messages.])
 
 AC_ARG_ENABLE([coverage],
 	AS_HELP_STRING([--enable-coverage], [enable test coverage @<:@default=disabled@:>@]),
@@ -224,8 +255,8 @@ GTK_DOC_CHECK([1.14],[--flavour no-tmpl-flat])
 ], [
 AM_CONDITIONAL([ENABLE_GTK_DOC], false)])
 
-# Some tests are skipped when sysconfdir != /etc.
-AM_CONDITIONAL([KMOD_SYSCONFDIR_NOT_ETC], [test "x$sysconfdir" != "x/etc"])
+PKG_INSTALLDIR
+PKG_NOARCH_INSTALLDIR
 
 #####################################################################
 # Default CFLAGS and LDFLAGS
@@ -233,47 +264,42 @@ AM_CONDITIONAL([KMOD_SYSCONFDIR_NOT_ETC], [test "x$sysconfdir" != "x/etc"])
 
 CC_CHECK_FLAGS_APPEND(with_cflags, [CFLAGS], [\
 		       -pipe \
-		       -DANOTHER_BRICK_IN_THE \
-		       -Wall \
+		       -fdata-sections \
+		       -fdiagnostics-show-option \
+		       -ffunction-sections \
+		       -fno-common \
+		       -fvisibility=hidden \
 		       -W \
+		       -Wall \
+		       -Wchar-subscripts \
+		       -Wdeclaration-after-statement \
+		       -Wendif-labels \
 		       -Wextra \
-		       -Wno-inline \
-		       -Wvla \
-		       -Wundef \
+		       -Wfloat-equal \
 		       -Wformat=2 \
-		       -Wlogical-op \
-		       -Wsign-compare \
-		       -Wformat-security \
-		       -Wmissing-include-dirs \
 		       -Wformat-nonliteral \
+		       -Wformat-security \
+		       -Winit-self \
+		       -Wlogical-op \
+		       -Wmissing-declarations \
+		       -Wmissing-include-dirs \
+		       -Wmissing-noreturn \
+		       -Wmissing-prototypes \
+		       -Wnested-externs \
+		       -Wno-attributes=clang::suppress \
+		       -Wno-unused-parameter \
 		       -Wold-style-definition \
 		       -Wpointer-arith \
-		       -Winit-self \
-		       -Wdeclaration-after-statement \
-		       -Wfloat-equal \
-		       -Wmissing-prototypes \
-		       -Wstrict-prototypes \
 		       -Wredundant-decls \
-		       -Wmissing-declarations \
-		       -Wmissing-noreturn \
 		       -Wshadow \
-		       -Wendif-labels \
+		       -Wsign-compare \
 		       -Wstrict-aliasing=3 \
-		       -Wwrite-strings \
-		       -Wno-long-long \
-		       -Wno-overlength-strings \
-		       -Wno-unused-parameter \
-		       -Wno-missing-field-initializers \
-		       -Wno-unused-result \
-		       -Wnested-externs \
-		       -Wchar-subscripts \
+		       -Wstrict-prototypes \
 		       -Wtype-limits \
+		       -Wundef \
 		       -Wuninitialized \
-		       -fno-common \
-		       -fdiagnostics-show-option \
-		       -fvisibility=hidden \
-		       -ffunction-sections \
-		       -fdata-sections])
+		       -Wvla \
+		       -Wwrite-strings])
 AC_SUBST([OUR_CFLAGS], "$with_cflags $with_coverage_cflags")
 
 
@@ -289,11 +315,16 @@ AC_DEFINE_UNQUOTED(KMOD_FEATURES, ["$with_features"], [Features in this build])
 # Generate files from *.in
 #####################################################################
 
+AC_SUBST([module_compressions], $module_compressions)
+AC_SUBST([module_signatures], $module_signatures)
+
 AC_CONFIG_FILES([
 	Makefile
 	man/Makefile
 	libkmod/docs/Makefile
 	libkmod/docs/version.xml
+	libkmod/libkmod.pc
+	tools/kmod.pc
 ])
 
 
@@ -304,10 +335,11 @@ AC_MSG_RESULT([
 	$PACKAGE $VERSION
 	=======
 
+	module_directory:	${module_directory}
 	prefix:			${prefix}
 	sysconfdir:		${sysconfdir}
+	distconfdir:		${distconfdir}
 	libdir:			${libdir}
-	rootlibdir:		${rootlibdir}
 	includedir:		${includedir}
 	bindir:			${bindir}
 	Bash completions dir:   ${with_bashcompletiondir}
@@ -316,16 +348,13 @@ AC_MSG_RESULT([
 	cflags:			${with_cflags} ${CFLAGS}
 	ldflags:		${with_ldflags} ${LDFLAGS}
 
-	experimental features:  ${enable_experimental}
 	tools:			${enable_tools}
-	python bindings:	${enable_python}
 	logging:		${enable_logging}
 	compression:		zstd=${with_zstd}  xz=${with_xz}  zlib=${with_zlib}
 	debug:			${enable_debug}
 	coverage:		${enable_coverage}
 	doc:			${enable_gtk_doc}
 	man:			${enable_manpages}
-	test-modules:           ${enable_test_modules}
 
 	features:               ${with_features}
 ])

@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Copyright (C) 2012-2013  ProFUSION embedded systems
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <dirent.h>
@@ -32,13 +20,14 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+#include <shared/missing.h>
 #include <shared/util.h>
 
 #include "testsuite.h"
 
 static const char *ANSI_HIGHLIGHT_GREEN_ON = "\x1B[1;32m";
 static const char *ANSI_HIGHLIGHT_YELLOW_ON = "\x1B[1;33m";
-static const char *ANSI_HIGHLIGHT_RED_ON =  "\x1B[1;31m";
+static const char *ANSI_HIGHLIGHT_RED_ON = "\x1B[1;31m";
 static const char *ANSI_HIGHLIGHT_OFF = "\x1B[0m";
 
 static const char *progname;
@@ -47,20 +36,21 @@ static const char options_short[] = "lhn";
 static const struct option options[] = {
 	{ "list", no_argument, 0, 'l' },
 	{ "help", no_argument, 0, 'h' },
-	{ NULL, 0, 0, 0 }
+	{ NULL, 0, 0, 0 },
 };
 
-#define OVERRIDE_LIBDIR ABS_TOP_BUILDDIR "/testsuite/.libs/"
 #define TEST_TIMEOUT_USEC 2 * USEC_PER_SEC
 
-struct _env_config {
+static const struct {
 	const char *key;
 	const char *ldpreload;
 } env_config[_TC_LAST] = {
-	[TC_UNAME_R] = { S_TC_UNAME_R, OVERRIDE_LIBDIR  "uname.so" },
+	[TC_UNAME_R] = { S_TC_UNAME_R, OVERRIDE_LIBDIR "uname.so" },
 	[TC_ROOTFS] = { S_TC_ROOTFS, OVERRIDE_LIBDIR "path.so" },
-	[TC_INIT_MODULE_RETCODES] = { S_TC_INIT_MODULE_RETCODES, OVERRIDE_LIBDIR "init_module.so" },
-	[TC_DELETE_MODULE_RETCODES] = { S_TC_DELETE_MODULE_RETCODES, OVERRIDE_LIBDIR "delete_module.so" },
+	[TC_INIT_MODULE_RETCODES] = { S_TC_INIT_MODULE_RETCODES,
+				      OVERRIDE_LIBDIR "init_module.so" },
+	[TC_DELETE_MODULE_RETCODES] = { S_TC_DELETE_MODULE_RETCODES,
+					OVERRIDE_LIBDIR "delete_module.so" },
 };
 
 static void help(void)
@@ -70,10 +60,11 @@ static void help(void)
 
 	printf("Usage:\n"
 	       "\t%s [options] <test>\n"
-	       "Options:\n", basename(progname));
+	       "Options:\n",
+	       basename(progname));
 
-	for (itr = options, itr_short = options_short;
-				itr->name != NULL; itr++, itr_short++)
+	for (itr = options, itr_short = options_short; itr->name != NULL;
+	     itr++, itr_short++)
 		printf("\t-%c, --%s\n", *itr_short, itr->name);
 }
 
@@ -86,10 +77,13 @@ static void test_list(const struct test *start, const struct test *stop)
 		printf("\t%s, %s\n", t->name, t->description);
 }
 
-int test_init(const struct test *start, const struct test *stop,
-	      int argc, char *const argv[])
+int test_init(const struct test *start, const struct test *stop, int argc,
+	      char *const argv[])
 {
 	progname = argv[0];
+
+	/* An empty testsuite is not likely intended */
+	assert_return(start != stop, -EINVAL);
 
 	for (;;) {
 		int c, idx = 0;
@@ -123,8 +117,8 @@ int test_init(const struct test *start, const struct test *stop,
 	return optind;
 }
 
-const struct test *test_find(const struct test *start,
-			     const struct test *stop, const char *name)
+const struct test *test_find(const struct test *start, const struct test *stop,
+			     const char *name)
 {
 	const struct test *t;
 
@@ -140,7 +134,7 @@ static int test_spawn_test(const struct test *t)
 {
 	const char *const args[] = { progname, "-n", t->name, NULL };
 
-	execv(progname, (char *const *) args);
+	execv(progname, (char *const *)args);
 
 	ERR("failed to spawn %s for %s: %m\n", progname, t->name);
 	return EXIT_FAILURE;
@@ -156,7 +150,7 @@ static int test_run_spawned(const struct test *t)
 
 int test_spawn_prog(const char *prog, const char *const args[])
 {
-	execv(prog, (char *const *) args);
+	execv(prog, (char *const *)args);
 
 	ERR("failed to spawn %s\n", prog);
 	ERR("did you forget to build tools?\n");
@@ -169,8 +163,6 @@ static void test_export_environ(const struct test *t)
 	size_t preloadlen = 0;
 	size_t i;
 	const struct keyval *env;
-
-	unsetenv("LD_PRELOAD");
 
 	for (i = 0; i < _TC_LAST; i++) {
 		const char *ldpreload;
@@ -198,8 +190,27 @@ static void test_export_environ(const struct test *t)
 		preload[preloadlen] = '\0';
 	}
 
-	if (preload != NULL)
+	if (preload != NULL) {
+		const char *existing_preload = getenv("LD_PRELOAD");
+		if (existing_preload) {
+			char *tmp;
+			size_t len = strlen(existing_preload);
+
+			tmp = malloc(preloadlen + 2 + len);
+			if (tmp == NULL) {
+				ERR("oom: test_export_environ()\n");
+				return;
+			}
+			memcpy(tmp, existing_preload, len);
+			tmp[len++] = ' ';
+			memcpy(tmp + len, preload, preloadlen);
+			preloadlen += len;
+			tmp[preloadlen] = '\0';
+			free(preload);
+			preload = tmp;
+		}
 		setenv("LD_PRELOAD", preload, 1);
+	}
 
 	free(preload);
 
@@ -207,8 +218,8 @@ static void test_export_environ(const struct test *t)
 		setenv(env->key, env->val, 1);
 }
 
-static inline int test_run_child(const struct test *t, int fdout[2],
-						int fderr[2], int fdmonitor[2])
+static inline int test_run_child(const struct test *t, int fdout[2], int fderr[2],
+				 int fdmonitor[2])
 {
 	/* kill child if parent dies */
 	prctl(PR_SET_PDEATHSIG, SIGTERM);
@@ -250,16 +261,13 @@ static inline int test_run_child(const struct test *t, int fdout[2],
 		}
 
 		if (stat_mstamp(&rootfsst) > stat_mstamp(&stampst)) {
-			ERR("rootfs %s is dirty, please run 'make rootfs' before runnning this test\n",
-								rootfs);
+			ERR("rootfs %s is dirty, please run 'meson compile testsuite/stamp-rootfs' before running this test\n",
+			    rootfs);
 			exit(EXIT_FAILURE);
 		}
 	}
 
-	if (t->need_spawn)
-		return test_spawn_test(t);
-	else
-		return test_run_spawned(t);
+	return test_spawn_test(t);
 }
 
 #define BUFSZ 4096
@@ -296,8 +304,7 @@ static int fd_cmp_check_activity(struct fd_cmp *fd_cmp)
 	if (stat(fd_cmp->path, &st) == 0 && st.st_size == 0)
 		return 0;
 
-	ERR("Expecting output on %s, but test didn't produce any\n",
-	    fd_cmp->name);
+	ERR("Expecting output on %s, but test didn't produce any\n", fd_cmp->name);
 
 	return -1;
 }
@@ -321,8 +328,7 @@ static int fd_cmp_open_monitor(struct fd_cmp *fd_cmp, int fd, int fd_ep)
 	return 0;
 }
 
-static int fd_cmp_open_std(struct fd_cmp *fd_cmp,
-			   const char *fn, int fd, int fd_ep)
+static int fd_cmp_open_std(struct fd_cmp *fd_cmp, const char *fn, int fd, int fd_ep)
 {
 	struct epoll_event ep = {};
 	int fd_match;
@@ -344,9 +350,8 @@ static int fd_cmp_open_std(struct fd_cmp *fd_cmp,
 }
 
 /* opens output file AND adds descriptor to epoll */
-static int fd_cmp_open(struct fd_cmp **fd_cmp_out,
-		       enum fd_cmp_type type, const char *fn, int fd,
-		       int fd_ep)
+static int fd_cmp_open(struct fd_cmp **fd_cmp_out, enum fd_cmp_type type, const char *fn,
+		       int fd, int fd_ep)
 {
 	int err = 0;
 	struct fd_cmp *fd_cmp;
@@ -419,9 +424,9 @@ static void fd_cmp_close(struct fd_cmp *fd_cmp)
 
 static bool fd_cmp_regex_one(const char *pattern, const char *s)
 {
-	_cleanup_(regfree) regex_t re = { };
+	_cleanup_(regfree) regex_t re = {};
 
-	return !regcomp(&re, pattern, REG_EXTENDED|REG_NOSUB) &&
+	return !regcomp(&re, pattern, REG_EXTENDED | REG_NOSUB) &&
 	       !regexec(&re, s, 0, NULL, 0);
 }
 
@@ -462,8 +467,10 @@ static bool fd_cmp_regex(struct fd_cmp *fd_cmp, const struct test *t)
 				 fd_cmp->head_match - done_match);
 		if (!p_match) {
 			if (fd_cmp->head_match >= sizeof(fd_cmp->buf_match)) {
-				ERR("Read %zu bytes without a match\n", sizeof(fd_cmp->buf_match));
-				ERR("output: %.*s", (int)sizeof(fd_cmp->buf_match), fd_cmp->buf_match);
+				ERR("Read %zu bytes without a match\n",
+				    sizeof(fd_cmp->buf_match));
+				ERR("output: %.*s", (int)sizeof(fd_cmp->buf_match),
+				    fd_cmp->buf_match);
 				return false;
 			}
 
@@ -478,13 +485,15 @@ static bool fd_cmp_regex(struct fd_cmp *fd_cmp, const struct test *t)
 			p_match = memchr(fd_cmp->buf_match + done_match, '\n',
 					 fd_cmp->head_match - done_match);
 			if (!p_match) {
-				ERR("could not find match line from fd %d\n", fd_cmp->fd_match);
+				ERR("could not find match line from fd %d\n",
+				    fd_cmp->fd_match);
 				return false;
 			}
 		}
 		*p_match = '\0';
 
-		if (!fd_cmp_regex_one(fd_cmp->buf_match + done_match, fd_cmp->buf + done)) {
+		if (!fd_cmp_regex_one(fd_cmp->buf_match + done_match,
+				      fd_cmp->buf + done)) {
 			ERR("Output does not match pattern on %s:\n", fd_cmp->name);
 			ERR("pattern: %s\n", fd_cmp->buf_match + done_match);
 			ERR("output : %s\n", fd_cmp->buf + done);
@@ -557,9 +566,8 @@ static bool fd_cmp_exact(struct fd_cmp *fd_cmp, const struct test *t)
 	return true;
 }
 
-static bool test_run_parent_check_outputs(const struct test *t,
-					  int fdout, int fderr, int fdmonitor,
-					  pid_t child)
+static bool test_run_parent_check_outputs(const struct test *t, int fdout, int fderr,
+					  int fdmonitor, pid_t child)
 {
 	int err, fd_ep;
 	unsigned long long end_usec, start_usec;
@@ -575,16 +583,14 @@ static bool test_run_parent_check_outputs(const struct test *t,
 	}
 
 	if (t->output.out != NULL) {
-		err = fd_cmp_open(&fd_cmp_out,
-				  FD_CMP_OUT, t->output.out, fdout, fd_ep);
+		err = fd_cmp_open(&fd_cmp_out, FD_CMP_OUT, t->output.out, fdout, fd_ep);
 		if (err < 0)
 			goto out;
 		n_fd++;
 	}
 
 	if (t->output.err != NULL) {
-		err = fd_cmp_open(&fd_cmp_err,
-				  FD_CMP_ERR, t->output.err, fderr, fd_ep);
+		err = fd_cmp_open(&fd_cmp_err, FD_CMP_ERR, t->output.err, fderr, fd_ep);
 		if (err < 0)
 			goto out;
 		n_fd++;
@@ -616,7 +622,7 @@ static bool test_run_parent_check_outputs(const struct test *t,
 			goto out;
 		}
 
-		for (i = 0;  i < fdcount; i++) {
+		for (i = 0; i < fdcount; i++) {
 			struct fd_cmp *fd_cmp = ev[i].data.ptr;
 			bool ret;
 
@@ -772,23 +778,17 @@ static int cmp_modnames(const void *m1, const void *m2)
 }
 
 /*
- * Store the expected module names in buf and return a list of pointers to
- * them.
+ * Auxiliary function to store the module names in buf and return a list
+ * of pointers to them.
  */
-static const char **read_expected_modules(const struct test *t,
-		char **buf, int *count)
+static const char **read_modules(const char *modules, char **buf, int *count)
 {
 	const char **res;
 	int len;
 	int i;
 	char *p;
 
-	if (t->modules_loaded[0] == '\0') {
-		*count = 0;
-		*buf = NULL;
-		return NULL;
-	}
-	*buf = strdup(t->modules_loaded);
+	*buf = strdup(modules);
 	if (!*buf) {
 		*count = -1;
 		return NULL;
@@ -816,6 +816,34 @@ static const char **read_expected_modules(const struct test *t,
 	return res;
 }
 
+/*
+ * Store the expected module names in buf and return a list of pointers to
+ * them.
+ */
+static const char **read_expected_modules(const struct test *t, char **buf, int *count)
+{
+	if (t->modules_loaded[0] == '\0') {
+		*count = 0;
+		*buf = NULL;
+		return NULL;
+	}
+	return read_modules(t->modules_loaded, buf, count);
+}
+
+/*
+ * Store the unexpected module names in buf and return a list of pointers to
+ * them.
+ */
+static const char **read_unexpected_modules(const struct test *t, char **buf, int *count)
+{
+	if (t->modules_not_loaded[0] == '\0') {
+		*count = 0;
+		*buf = NULL;
+		return NULL;
+	}
+	return read_modules(t->modules_not_loaded, buf, count);
+}
+
 static char **read_loaded_modules(const struct test *t, char **buf, int *count)
 {
 	char dirname[PATH_MAX];
@@ -828,8 +856,8 @@ static char **read_loaded_modules(const struct test *t, char **buf, int *count)
 	const char *rootfs = t->config[TC_ROOTFS] ? t->config[TC_ROOTFS] : "";
 
 	/* Store the entries in /sys/module to res */
-	if (snprintf(dirname, sizeof(dirname), "%s/sys/module", rootfs)
-			>= (int)sizeof(dirname)) {
+	if (snprintf(dirname, sizeof(dirname), "%s/sys/module", rootfs) >=
+	    (int)sizeof(dirname)) {
 		ERR("rootfs path too long: %s\n", rootfs);
 		*buf = NULL;
 		len = -1;
@@ -896,8 +924,10 @@ static int check_loaded_modules(const struct test *t)
 	a2 = read_loaded_modules(t, &buf2, &l2);
 	if (l2 < 0)
 		goto out_a1;
-	qsort(a1, l1, sizeof(char *), cmp_modnames);
-	qsort(a2, l2, sizeof(char *), cmp_modnames);
+	if (a1 && l1)
+		qsort(a1, l1, sizeof(char *), cmp_modnames);
+	if (a2 && l2)
+		qsort(a2, l2, sizeof(char *), cmp_modnames);
 	i1 = i2 = 0;
 	err = true;
 	while (i1 < l1 || i2 < l2) {
@@ -916,7 +946,7 @@ static int check_loaded_modules(const struct test *t)
 			err = false;
 			ERR("module %s not loaded\n", a1[i1]);
 			i1++;
-		} else  {
+		} else {
 			err = false;
 			ERR("module %s is loaded but should not be \n", a2[i2]);
 			i2++;
@@ -930,18 +960,65 @@ out_a1:
 	return err;
 }
 
-static inline int test_run_parent(const struct test *t, int fdout[2],
-				int fderr[2], int fdmonitor[2], pid_t child)
+static int check_not_loaded_modules(const struct test *t)
+{
+	int l1, l2, i1, i2;
+	const char **a1;
+	char **a2;
+	char *buf1, *buf2;
+	int err = false;
+
+	a1 = read_unexpected_modules(t, &buf1, &l1);
+	if (l1 < 0)
+		return err;
+	a2 = read_loaded_modules(t, &buf2, &l2);
+	if (l2 < 0)
+		goto out_a1;
+	qsort(a1, l1, sizeof(char *), cmp_modnames);
+	qsort(a2, l2, sizeof(char *), cmp_modnames);
+	i1 = i2 = 0;
+	err = true;
+	while (i1 < l1 || i2 < l2) {
+		int cmp;
+
+		if (i1 >= l1)
+			cmp = 1;
+		else if (i2 >= l2)
+			cmp = -1;
+		else
+			cmp = cmp_modnames(&a1[i1], &a2[i2]);
+		if (cmp == 0) {
+			err = false;
+			ERR("module %s loaded\n", a1[i1]);
+			i1++;
+		} else if (cmp < 0) {
+			i1++;
+			i2++;
+		} else {
+			err = false;
+			ERR("module %s is loaded but should not be\n", a2[i2]);
+			i2++;
+		}
+	}
+	free(a2);
+	free(buf2);
+out_a1:
+	free(a1);
+	free(buf1);
+	return err;
+}
+
+static inline int test_run_parent(const struct test *t, int fdout[2], int fderr[2],
+				  int fdmonitor[2], pid_t child)
 {
 	pid_t pid;
 	int err;
 	bool matchout, match_modules;
 
 	if (t->skip) {
-		LOG("%sSKIPPED%s: %s\n",
-			ANSI_HIGHLIGHT_YELLOW_ON, ANSI_HIGHLIGHT_OFF,
-			t->name);
-		err = EXIT_SUCCESS;
+		LOG("%sSKIPPED%s: %s\n", ANSI_HIGHLIGHT_YELLOW_ON, ANSI_HIGHLIGHT_OFF,
+		    t->name);
+		err = 77;
 		goto exit;
 	}
 
@@ -952,8 +1029,8 @@ static inline int test_run_parent(const struct test *t, int fdout[2],
 		close(fderr[1]);
 	close(fdmonitor[1]);
 
-	matchout = test_run_parent_check_outputs(t, fdout[0], fderr[0],
-							fdmonitor[0], child);
+	matchout =
+		test_run_parent_check_outputs(t, fdout[0], fderr[0], fdmonitor[0], child);
 
 	/*
 	 * break pipe on the other end: either child already closed or we want
@@ -976,14 +1053,14 @@ static inline int test_run_parent(const struct test *t, int fdout[2],
 
 	if (WIFEXITED(err)) {
 		if (WEXITSTATUS(err) != 0)
-			ERR("'%s' [%u] exited with return code %d\n",
-					t->name, pid, WEXITSTATUS(err));
+			ERR("'%s' [%u] exited with return code %d\n", t->name, pid,
+			    WEXITSTATUS(err));
 		else
-			LOG("'%s' [%u] exited with return code %d\n",
-					t->name, pid, WEXITSTATUS(err));
+			LOG("'%s' [%u] exited with return code %d\n", t->name, pid,
+			    WEXITSTATUS(err));
 	} else if (WIFSIGNALED(err)) {
 		ERR("'%s' [%u] terminated by signal %d (%s)\n", t->name, pid,
-				WTERMSIG(err), strsignal(WTERMSIG(err)));
+		    WTERMSIG(err), strsignal(WTERMSIG(err)));
 		err = t->expected_fail ? EXIT_SUCCESS : EXIT_FAILURE;
 		goto exit;
 	}
@@ -994,48 +1071,44 @@ static inline int test_run_parent(const struct test *t, int fdout[2],
 		match_modules = check_loaded_modules(t);
 	else
 		match_modules = true;
+	if (match_modules && t->modules_not_loaded)
+		match_modules = check_not_loaded_modules(t);
 
 	if (t->expected_fail == false) {
 		if (err == 0) {
 			if (matchout && match_modules)
-				LOG("%sPASSED%s: %s\n",
-					ANSI_HIGHLIGHT_GREEN_ON, ANSI_HIGHLIGHT_OFF,
-					t->name);
+				LOG("%sPASSED%s: %s\n", ANSI_HIGHLIGHT_GREEN_ON,
+				    ANSI_HIGHLIGHT_OFF, t->name);
 			else {
 				ERR("%sFAILED%s: exit ok but %s do not match: %s\n",
-					ANSI_HIGHLIGHT_RED_ON, ANSI_HIGHLIGHT_OFF,
-					matchout ? "loaded modules" : "outputs",
-					t->name);
+				    ANSI_HIGHLIGHT_RED_ON, ANSI_HIGHLIGHT_OFF,
+				    matchout ? "loaded modules" : "outputs", t->name);
 				err = EXIT_FAILURE;
 			}
 		} else {
-			ERR("%sFAILED%s: %s\n",
-					ANSI_HIGHLIGHT_RED_ON, ANSI_HIGHLIGHT_OFF,
-					t->name);
+			ERR("%sFAILED%s: %s\n", ANSI_HIGHLIGHT_RED_ON, ANSI_HIGHLIGHT_OFF,
+			    t->name);
 		}
 	} else {
 		if (err == 0) {
 			if (matchout) {
 				ERR("%sUNEXPECTED PASS%s: exit with 0: %s\n",
-					ANSI_HIGHLIGHT_RED_ON, ANSI_HIGHLIGHT_OFF,
-					t->name);
+				    ANSI_HIGHLIGHT_RED_ON, ANSI_HIGHLIGHT_OFF, t->name);
 				err = EXIT_FAILURE;
 			} else {
 				ERR("%sUNEXPECTED PASS%s: exit with 0 and outputs do not match: %s\n",
-					ANSI_HIGHLIGHT_RED_ON, ANSI_HIGHLIGHT_OFF,
-					t->name);
+				    ANSI_HIGHLIGHT_RED_ON, ANSI_HIGHLIGHT_OFF, t->name);
 				err = EXIT_FAILURE;
 			}
 		} else {
 			if (matchout) {
-				LOG("%sEXPECTED FAIL%s: %s\n",
-					ANSI_HIGHLIGHT_GREEN_ON, ANSI_HIGHLIGHT_OFF,
-					t->name);
+				LOG("%sEXPECTED FAIL%s: %s\n", ANSI_HIGHLIGHT_GREEN_ON,
+				    ANSI_HIGHLIGHT_OFF, t->name);
 				err = EXIT_SUCCESS;
 			} else {
 				LOG("%sEXPECTED FAIL%s: exit with %d but outputs do not match: %s\n",
-					ANSI_HIGHLIGHT_GREEN_ON, ANSI_HIGHLIGHT_OFF,
-					WEXITSTATUS(err), t->name);
+				    ANSI_HIGHLIGHT_GREEN_ON, ANSI_HIGHLIGHT_OFF,
+				    WEXITSTATUS(err), t->name);
 				err = EXIT_FAILURE;
 			}
 		}
@@ -1076,7 +1149,7 @@ int test_run(const struct test *t)
 	int fderr[2];
 	int fdmonitor[2];
 
-	if (t->need_spawn && oneshot)
+	if (oneshot)
 		test_run_spawned(t);
 
 	if (t->output.out != NULL) {

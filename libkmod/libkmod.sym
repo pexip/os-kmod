@@ -1,3 +1,6 @@
+# With kmod v5 we bumped the DSO major and re-tagged all symbols.
+#
+# NOTE: Do not change the existing sections. Add new symbols to new sections.
 LIBKMOD_5 {
 global:
 	kmod_get_log_priority;
@@ -30,7 +33,6 @@ global:
 	kmod_module_new_from_name;
 	kmod_module_new_from_path;
 	kmod_module_new_from_lookup;
-	kmod_module_new_from_name_lookup;
 	kmod_module_new_from_loaded;
 	kmod_module_ref;
 	kmod_module_unref;
@@ -92,3 +94,14 @@ LIBKMOD_22 {
 global:
 	kmod_get_dirname;
 } LIBKMOD_6;
+
+LIBKMOD_30 {
+global:
+	kmod_module_new_from_name_lookup;
+} LIBKMOD_22;
+
+LIBKMOD_33 {
+global:
+	kmod_config_get_weakdeps;
+	kmod_module_get_weakdeps;
+} LIBKMOD_30;

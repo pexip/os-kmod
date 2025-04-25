@@ -1,52 +1,51 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
- * libkmod - interface to kernel module operations
- *
  * Copyright (C) 2011-2013  ProFUSION embedded systems
  * Copyright (C) 2014  Intel Corporation. All rights reserved.
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/param.h>
 
 #include "util.h"
 #include "strbuf.h"
 
 #define BUF_STEP 128
 
-static bool buf_grow(struct strbuf *buf, size_t newsize)
+static bool buf_realloc(struct strbuf *buf, size_t sz)
 {
-	void *tmp;
-	size_t sz;
+	void *tmp = realloc(buf->heap ? buf->bytes : NULL, sz);
 
-	if (newsize <= buf->size)
-		return true;
+	if (sz > 0) {
+		if (tmp == NULL)
+			return false;
 
-	if (newsize % BUF_STEP == 0)
-		sz = newsize;
-	else
-		sz = ((newsize / BUF_STEP) + 1) * BUF_STEP;
+		if (!buf->heap)
+			memcpy(tmp, buf->bytes, MIN(buf->size, sz));
+	}
 
-	tmp = realloc(buf->bytes, sz);
-	if (sz > 0 && tmp == NULL)
-		return false;
+	buf->heap = true;
 	buf->bytes = tmp;
 	buf->size = sz;
+
 	return true;
+}
+
+bool strbuf_reserve_extra(struct strbuf *buf, size_t n)
+{
+	if (uaddsz_overflow(buf->used, n, &n) || n > SIZE_MAX - BUF_STEP)
+		return false;
+
+	if (n <= buf->size)
+		return true;
+
+	if (n % BUF_STEP)
+		n = ((n / BUF_STEP) + 1) * BUF_STEP;
+
+	return buf_realloc(buf, n);
 }
 
 void strbuf_init(struct strbuf *buf)
@@ -54,59 +53,63 @@ void strbuf_init(struct strbuf *buf)
 	buf->bytes = NULL;
 	buf->size = 0;
 	buf->used = 0;
+	buf->heap = true;
 }
 
 void strbuf_release(struct strbuf *buf)
 {
-	free(buf->bytes);
+	if (buf->heap)
+		free(buf->bytes);
 }
 
 char *strbuf_steal(struct strbuf *buf)
 {
 	char *bytes;
 
-	bytes = realloc(buf->bytes, buf->used + 1);
-	if (!bytes) {
-		free(buf->bytes);
+	if (!buf_realloc(buf, buf->used + 1))
 		return NULL;
-	}
+
+	bytes = buf->bytes;
+	buf->bytes = NULL;
 	bytes[buf->used] = '\0';
+
 	return bytes;
 }
 
 const char *strbuf_str(struct strbuf *buf)
 {
-	if (!buf_grow(buf, buf->used + 1))
-		return NULL;
-	buf->bytes[buf->used] = '\0';
+	if (!buf->used || buf->bytes[buf->used - 1]) {
+		if (!strbuf_reserve_extra(buf, 1))
+			return NULL;
+		buf->bytes[buf->used] = '\0';
+	}
 	return buf->bytes;
 }
 
 bool strbuf_pushchar(struct strbuf *buf, char ch)
 {
-	if (!buf_grow(buf, buf->used + 1))
+	if (!strbuf_reserve_extra(buf, 1))
 		return false;
 	buf->bytes[buf->used] = ch;
 	buf->used++;
 	return true;
 }
 
-unsigned strbuf_pushchars(struct strbuf *buf, const char *str)
+size_t strbuf_pushmem(struct strbuf *buf, const char *src, size_t sz)
 {
-	unsigned int len;
-
-	assert(str != NULL);
+	assert(src != NULL);
 	assert(buf != NULL);
 
-	len = strlen(str);
-
-	if (!buf_grow(buf, buf->used + len))
+	if (sz == 0)
 		return 0;
 
-	memcpy(buf->bytes + buf->used, str, len);
-	buf->used += len;
+	if (!strbuf_reserve_extra(buf, sz))
+		return 0;
 
-	return len;
+	memcpy(buf->bytes + buf->used, src, sz);
+	buf->used += sz;
+
+	return sz;
 }
 
 void strbuf_popchar(struct strbuf *buf)
@@ -115,14 +118,19 @@ void strbuf_popchar(struct strbuf *buf)
 	buf->used--;
 }
 
-void strbuf_popchars(struct strbuf *buf, unsigned n)
+void strbuf_popchars(struct strbuf *buf, size_t n)
 {
 	assert(buf->used >= n);
 	buf->used -= n;
+}
+
+void strbuf_shrink_to(struct strbuf *buf, size_t sz)
+{
+	assert(buf->used >= sz);
+	buf->used = sz;
 }
 
 void strbuf_clear(struct strbuf *buf)
 {
 	buf->used = 0;
 }
-

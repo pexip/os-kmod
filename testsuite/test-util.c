@@ -1,19 +1,7 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Copyright (C) 2012-2013  ProFUSION embedded systems
  * Copyright (C) 2012  Pedro Pedruzzi
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <fcntl.h>
@@ -31,18 +19,20 @@
 
 static int alias_1(const struct test *t)
 {
-	static const char *input[] = {
+	static const char *const input[] = {
+		// clang-format off
 		"test1234",
 		"test[abcfoobar]2211",
 		"bar[aaa][bbbb]sss",
 		"kmod[p.b]lib",
 		"[az]1234[AZ]",
 		NULL,
+		// clang-format on
 	};
 
 	char buf[PATH_MAX];
 	size_t len;
-	const char **alias;
+	const char *const *alias;
 
 	for (alias = input; *alias != NULL; alias++) {
 		int ret;
@@ -66,7 +56,6 @@ DEFINE_TEST(alias_1,
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-util/",
 	},
-	.need_spawn = true,
 	.output = {
 		.out = TESTSUITE_ROOTFS "test-util/alias-correct.txt",
 	});
@@ -96,7 +85,6 @@ DEFINE_TEST(test_freadline_wrapped,
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-util/",
 	},
-	.need_spawn = true,
 	.output = {
 		.out = TESTSUITE_ROOTFS "test-util/freadline_wrapped-correct.txt",
 	});
@@ -112,9 +100,7 @@ static int test_strchr_replace(const struct test *t)
 	return EXIT_SUCCESS;
 }
 DEFINE_TEST(test_strchr_replace,
-	.description = "check implementation of strchr_replace()",
-	.need_spawn = false,
-	);
+	    .description = "check implementation of strchr_replace()");
 
 static int test_underscores(const struct test *t)
 {
@@ -128,21 +114,18 @@ static int test_underscores(const struct test *t)
 		{ strdup("-aa-[bb]-cc-"), "_aa_[bb]_cc_" },
 		{ strdup("-aa-[b-b]-cc-"), "_aa_[b-b]_cc_" },
 		{ strdup("-aa-b[-]b-cc"), "_aa_b[-]b_cc" },
-		{ }
+		{ },
 	}, *iter;
 
 	for (iter = &teststr[0]; iter->val != NULL; iter++) {
 		_cleanup_free_ char *val = iter->val;
-		underscores(val);
+		assert_return(!underscores(val), EXIT_FAILURE);
 		assert_return(streq(val, iter->res), EXIT_FAILURE);
 	}
 
 	return EXIT_SUCCESS;
 }
-DEFINE_TEST(test_underscores,
-	.description = "check implementation of underscores()",
-	.need_spawn = false,
-	);
+DEFINE_TEST(test_underscores, .description = "check implementation of underscores()");
 
 static int test_path_ends_with_kmod_ext(const struct test *t)
 {
@@ -151,34 +134,32 @@ static int test_path_ends_with_kmod_ext(const struct test *t)
 		bool res;
 	} teststr[] = {
 		{ "/bla.ko", true },
-#ifdef ENABLE_ZLIB
+#if ENABLE_ZLIB
 		{ "/bla.ko.gz", true },
 #endif
-#ifdef ENABLE_XZ
+#if ENABLE_XZ
 		{ "/bla.ko.xz", true },
 #endif
-#ifdef ENABLE_ZSTD
+#if ENABLE_ZSTD
 		{ "/bla.ko.zst", true },
 #endif
 		{ "/bla.ko.x", false },
 		{ "/bla.ko.", false },
 		{ "/bla.koz", false },
 		{ "/b", false },
-		{ }
+		{ },
 	}, *iter;
 
 	for (iter = &teststr[0]; iter->val != NULL; iter++) {
-		assert_return(path_ends_with_kmod_ext(iter->val,
-						      strlen(iter->val)) == iter->res,
+		assert_return(path_ends_with_kmod_ext(iter->val, strlen(iter->val)) ==
+				      iter->res,
 			      EXIT_FAILURE);
 	}
 
 	return EXIT_SUCCESS;
 }
 DEFINE_TEST(test_path_ends_with_kmod_ext,
-	.description = "check implementation of path_ends_with_kmod_ext()",
-	.need_spawn = false,
-	);
+	    .description = "check implementation of path_ends_with_kmod_ext()");
 
 #define TEST_WRITE_STR_SAFE_FILE "/write-str-safe"
 #define TEST_WRITE_STR_SAFE_PATH TESTSUITE_ROOTFS "test-util2/" TEST_WRITE_STR_SAFE_FILE
@@ -187,7 +168,7 @@ static int test_write_str_safe(const struct test *t)
 	const char *s = "test";
 	int fd;
 
-	fd = open(TEST_WRITE_STR_SAFE_FILE ".txt", O_CREAT|O_TRUNC|O_WRONLY, 0644);
+	fd = open(TEST_WRITE_STR_SAFE_FILE ".txt", O_CREAT | O_TRUNC | O_WRONLY, 0644);
 	assert_return(fd >= 0, EXIT_FAILURE);
 
 	write_str_safe(fd, s, strlen(s));
@@ -200,34 +181,81 @@ DEFINE_TEST(test_write_str_safe,
 	.config = {
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-util2/",
 	},
-	.need_spawn = true,
 	.output = {
 		.files = (const struct keyval[]) {
 			{ TEST_WRITE_STR_SAFE_PATH ".txt",
 			  TEST_WRITE_STR_SAFE_PATH "-correct.txt" },
-			{ }
+			{ },
 		},
 	});
 
-static int test_addu64_overflow(const struct test *t)
+static int test_uadd32_overflow(const struct test *t)
 {
-	uint64_t res;
+	uint32_t res;
 	bool overflow;
 
-	overflow = addu64_overflow(UINT64_MAX - 1, 1, &res);
+	overflow = uadd32_overflow(UINT32_MAX - 1, 1, &res);
 	assert_return(!overflow, EXIT_FAILURE);
-	assert_return(res == UINT64_MAX, EXIT_FAILURE);
+	assert_return(res == UINT32_MAX, EXIT_FAILURE);
 
-	overflow = addu64_overflow(UINT64_MAX, 1, &res);
+	overflow = uadd32_overflow(UINT32_MAX, 1, &res);
 	assert_return(overflow, EXIT_FAILURE);
 
 	return EXIT_SUCCESS;
 }
-DEFINE_TEST(test_addu64_overflow,
-	.description = "check implementation of addu4_overflow()",
-	.need_spawn = false,
-	);
+DEFINE_TEST(test_uadd32_overflow,
+	    .description = "check implementation of uadd32_overflow()");
 
+static int test_uadd64_overflow(const struct test *t)
+{
+	uint64_t res;
+	bool overflow;
+
+	overflow = uadd64_overflow(UINT64_MAX - 1, 1, &res);
+	assert_return(!overflow, EXIT_FAILURE);
+	assert_return(res == UINT64_MAX, EXIT_FAILURE);
+
+	overflow = uadd64_overflow(UINT64_MAX, 1, &res);
+	assert_return(overflow, EXIT_FAILURE);
+
+	return EXIT_SUCCESS;
+}
+DEFINE_TEST(test_uadd64_overflow,
+	    .description = "check implementation of uadd64_overflow()");
+
+static int test_umul32_overflow(const struct test *t)
+{
+	uint32_t res;
+	bool overflow;
+
+	overflow = umul32_overflow(UINT32_MAX / 0x10, 0x10, &res);
+	assert_return(!overflow, EXIT_FAILURE);
+	assert_return(res == (UINT32_MAX & ~0xf), EXIT_FAILURE);
+
+	overflow = umul32_overflow(UINT32_MAX, 0x10, &res);
+	assert_return(overflow, EXIT_FAILURE);
+
+	return EXIT_SUCCESS;
+}
+DEFINE_TEST(test_umul32_overflow,
+	    .description = "check implementation of umul32_overflow()");
+
+static int test_umul64_overflow(const struct test *t)
+{
+	uint64_t res;
+	bool overflow;
+
+	overflow = umul64_overflow(UINT64_MAX / 0x10, 0x10, &res);
+	assert_return(!overflow, EXIT_FAILURE);
+	assert_return(res == (UINT64_MAX & ~0xf), EXIT_FAILURE);
+
+	overflow = umul64_overflow(UINT64_MAX, 0x10, &res);
+	assert_return(overflow, EXIT_FAILURE);
+
+	return EXIT_SUCCESS;
+}
+DEFINE_TEST(test_umul64_overflow,
+	    .description = "check implementation of umul64_overflow()");
 
 static int test_backoff_time(const struct test *t)
 {
@@ -265,9 +293,6 @@ static int test_backoff_time(const struct test *t)
 	return EXIT_SUCCESS;
 }
 DEFINE_TEST(test_backoff_time,
-	.description = "check implementation of get_backoff_delta_msec()",
-	.need_spawn = false,
-	);
-
+	    .description = "check implementation of get_backoff_delta_msec()");
 
 TESTSUITE_MAIN();
