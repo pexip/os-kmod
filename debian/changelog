@@ -1,3 +1,12 @@
+kmod (34.2-2) unstable; urgency=medium
+
+  * kmod.initramfs-hook: if compressed modules have been copied to the
+    initramfs and CONFIG_MODULE_DECOMPRESS=n (which is not the default
+    in Debian kernels) then also copy the compression libraries needed
+    by kmod to load them. (Closes: #1099801)
+
+ -- Marco d'Itri <md@linux.it>  Fri, 25 Apr 2025 11:50:41 +0200
+
 kmod (34.2-1) unstable; urgency=medium
 
   * New upstream release.

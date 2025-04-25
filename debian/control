@@ -38,7 +38,6 @@ Architecture: linux-any
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Conflicts: dracut-install (<= 103-1)
 Description: libkmod shared library
  This library provides an API for insertion, removal, configuration and
  listing of kernel modules.
