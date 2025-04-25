@@ -1,6 +1,4 @@
 *.ko
-!mod-simple-*.ko
-!cache/*.ko
 .cache.mk
 *.mod.c
 .tmp_versions
@@ -11,6 +9,3 @@
 
 modules.order
 Module.symvers
-mod-simple-x86_64.c
-mod-simple-i386.c
-mod-simple-sparc64.c

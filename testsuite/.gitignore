@@ -2,7 +2,6 @@
 *.la
 *.so
 /.dirstamp
-/test-scratchbuf
 /test-strbuf
 /test-array
 /test-util
@@ -18,11 +17,9 @@
 /test-modprobe
 /test-hash
 /test-list
-/test-tools
+/test-weakdep
 /rootfs
 /stamp-rootfs
-/test-scratchbuf.log
-/test-scratchbuf.trs
 /test-strbuf.log
 /test-strbuf.trs
 /test-array.log
@@ -53,5 +50,5 @@
 /test-testsuite.trs
 /test-list.log
 /test-list.trs
-/test-tools.log
-/test-tools.trs
+/test-weakdep.log
+/test-weakdep.trs

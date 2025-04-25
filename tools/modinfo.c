@@ -1,20 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * kmod-modinfo - query kernel module information using libkmod.
  *
  * Copyright (C) 2011-2013  ProFUSION embedded systems
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <errno.h>
@@ -46,13 +34,19 @@ struct param {
 	int typelen;
 };
 
-static struct param *add_param(const char *name, int namelen, const char *param, int paramlen, const char *type, int typelen, struct param **list)
+static struct param *add_param(const char *name, size_t namelen, const char *param,
+			       size_t paramlen, const char *type, size_t typelen,
+			       struct param **list)
 {
 	struct param *it;
 
+	if (namelen > INT_MAX || paramlen > INT_MAX || typelen > INT_MAX) {
+		errno = EINVAL;
+		return NULL;
+	}
+
 	for (it = *list; it != NULL; it = it->next) {
-		if (it->namelen == namelen &&
-			memcmp(it->name, name, namelen) == 0)
+		if (it->namelen == (int)namelen && memcmp(it->name, name, namelen) == 0)
 			break;
 	}
 
@@ -86,12 +80,11 @@ static struct param *add_param(const char *name, int namelen, const char *param,
 static int process_parm(const char *key, const char *value, struct param **params)
 {
 	const char *name, *param, *type;
-	int namelen, paramlen, typelen;
+	size_t namelen, paramlen, typelen;
 	struct param *it;
 	const char *colon = strchr(value, ':');
 	if (colon == NULL) {
-		ERR("Found invalid \"%s=%s\": missing ':'\n",
-		    key, value);
+		ERR("Found invalid \"%s=%s\": missing ':'\n", key, value);
 		return 0;
 	}
 
@@ -111,7 +104,7 @@ static int process_parm(const char *key, const char *value, struct param **param
 
 	it = add_param(name, namelen, param, paramlen, type, typelen, params);
 	if (it == NULL) {
-		ERR("Out of memory!\n");
+		ERR("Unable to add parameter: %m\n");
 		return -ENOMEM;
 	}
 
@@ -140,19 +133,13 @@ static int modinfo_params_do(const struct kmod_list *list)
 		params = p->next;
 
 		if (p->param == NULL)
-			printf("%.*s: (%.*s)%c",
-			       p->namelen, p->name, p->typelen, p->type,
+			printf("%.*s: (%.*s)%c", p->namelen, p->name, p->typelen, p->type,
 			       separator);
 		else if (p->type != NULL)
-			printf("%.*s:%.*s (%.*s)%c",
-			       p->namelen, p->name,
-			       p->paramlen, p->param,
-			       p->typelen, p->type,
-			       separator);
+			printf("%.*s:%.*s (%.*s)%c", p->namelen, p->name, p->paramlen,
+			       p->param, p->typelen, p->type, separator);
 		else
-			printf("%.*s:%.*s%c",
-			       p->namelen, p->name,
-			       p->paramlen, p->param,
+			printf("%.*s:%.*s%c", p->namelen, p->name, p->paramlen, p->param,
 			       separator);
 
 		free(p);
@@ -179,8 +166,7 @@ static int modinfo_do(struct kmod_module *mod)
 
 	if (is_builtin) {
 		if (field == NULL)
-			printf("%-16s%s%c", "name:",
-			       kmod_module_get_name(mod), separator);
+			printf("%-16s%s%c", "name:", kmod_module_get_name(mod), separator);
 		else if (field != NULL && streq(field, "name"))
 			printf("%s%c", kmod_module_get_name(mod), separator);
 		filename = "(builtin)";
@@ -190,8 +176,7 @@ static int modinfo_do(struct kmod_module *mod)
 		printf("%s%c", filename, separator);
 		return 0;
 	} else if (field == NULL) {
-		printf("%-16s%s%c", "filename:",
-		       filename, separator);
+		printf("%-16s%s%c", "filename:", filename, separator);
 	}
 
 	err = kmod_module_get_info(mod, &list);
@@ -203,8 +188,8 @@ static int modinfo_do(struct kmod_module *mod)
 			 */
 			return 0;
 		}
-		ERR("could not get modinfo from '%s': %s\n",
-			kmod_module_get_name(mod), strerror(-err));
+		ERR("could not get modinfo from '%s': %s\n", kmod_module_get_name(mod),
+		    strerror(-err));
 		return err;
 	}
 
@@ -216,7 +201,7 @@ static int modinfo_do(struct kmod_module *mod)
 	kmod_list_foreach(l, list) {
 		const char *key = kmod_module_info_get_key(l);
 		const char *value = kmod_module_info_get_value(l);
-		int keylen;
+		size_t keylen;
 
 		if (field != NULL) {
 			if (!streq(field, key))
@@ -239,7 +224,9 @@ static int modinfo_do(struct kmod_module *mod)
 		}
 
 		keylen = strlen(key);
-		printf("%s:%-*s%s%c", key, 15 - keylen, "", value, separator);
+		if (keylen > 15)
+			keylen = 15;
+		printf("%s:%-*s%s%c", key, 15 - (int)keylen, "", value, separator);
 	}
 
 	if (field != NULL)
@@ -250,21 +237,14 @@ static int modinfo_do(struct kmod_module *mod)
 		params = p->next;
 
 		if (p->param == NULL)
-			printf("%-16s%.*s:%.*s%c", "parm:",
-			       p->namelen, p->name, p->typelen, p->type,
-			       separator);
+			printf("%-16s%.*s:%.*s%c", "parm:", p->namelen, p->name,
+			       p->typelen, p->type, separator);
 		else if (p->type != NULL)
-			printf("%-16s%.*s:%.*s (%.*s)%c", "parm:",
-			       p->namelen, p->name,
-			       p->paramlen, p->param,
-			       p->typelen, p->type,
-			       separator);
+			printf("%-16s%.*s:%.*s (%.*s)%c", "parm:", p->namelen, p->name,
+			       p->paramlen, p->param, p->typelen, p->type, separator);
 		else
-			printf("%-16s%.*s:%.*s%c",
-			       "parm:",
-			       p->namelen, p->name,
-			       p->paramlen, p->param,
-			       separator);
+			printf("%-16s%.*s:%.*s%c", "parm:", p->namelen, p->name,
+			       p->paramlen, p->param, separator);
 
 		free(p);
 	}
@@ -310,7 +290,6 @@ static int modinfo_name_do(struct kmod_ctx *ctx, const char *name)
 	return err;
 }
 
-
 static int modinfo_alias_do(struct kmod_ctx *ctx, const char *alias)
 {
 	struct kmod_list *l, *list = NULL;
@@ -338,48 +317,49 @@ static int modinfo_alias_do(struct kmod_ctx *ctx, const char *alias)
 
 static const char cmdopts_s[] = "adlpn0mF:k:b:Vh";
 static const struct option cmdopts[] = {
-	{"author", no_argument, 0, 'a'},
-	{"description", no_argument, 0, 'd'},
-	{"license", no_argument, 0, 'l'},
-	{"parameters", no_argument, 0, 'p'},
-	{"filename", no_argument, 0, 'n'},
-	{"null", no_argument, 0, '0'},
-	{"modname", no_argument, 0, 'm'},
-	{"field", required_argument, 0, 'F'},
-	{"set-version", required_argument, 0, 'k'},
-	{"basedir", required_argument, 0, 'b'},
-	{"version", no_argument, 0, 'V'},
-	{"help", no_argument, 0, 'h'},
-	{NULL, 0, 0, 0}
+	{ "author", no_argument, 0, 'a' },
+	{ "description", no_argument, 0, 'd' },
+	{ "license", no_argument, 0, 'l' },
+	{ "parameters", no_argument, 0, 'p' },
+	{ "filename", no_argument, 0, 'n' },
+	{ "null", no_argument, 0, '0' },
+	{ "modname", no_argument, 0, 'm' },
+	{ "field", required_argument, 0, 'F' },
+	{ "set-version", required_argument, 0, 'k' },
+	{ "basedir", required_argument, 0, 'b' },
+	{ "version", no_argument, 0, 'V' },
+	{ "help", no_argument, 0, 'h' },
+	{ NULL, 0, 0, 0 },
 };
 
 static void help(void)
 {
 	printf("Usage:\n"
-		"\t%s [options] <modulename|filename> [args]\n"
-		"Options:\n"
-		"\t-a, --author                Print only 'author'\n"
-		"\t-d, --description           Print only 'description'\n"
-		"\t-l, --license               Print only 'license'\n"
-		"\t-p, --parameters            Print only 'parm'\n"
-		"\t-n, --filename              Print only 'filename'\n"
-		"\t-0, --null                  Use \\0 instead of \\n\n"
-		"\t-m, --modname               Handle argument as module name instead of alias or filename\n"
-		"\t-F, --field=FIELD           Print only provided FIELD\n"
-		"\t-k, --set-version=VERSION   Use VERSION instead of `uname -r`\n"
-		"\t-b, --basedir=DIR           Use DIR as filesystem root for /lib/modules\n"
-		"\t-V, --version               Show version\n"
-		"\t-h, --help                  Show this help\n",
-		program_invocation_short_name);
+	       "\t%s [options] <modulename|filename> [args]\n"
+	       "Options:\n"
+	       "\t-a, --author                Print only 'author'\n"
+	       "\t-d, --description           Print only 'description'\n"
+	       "\t-l, --license               Print only 'license'\n"
+	       "\t-p, --parameters            Print only 'parm'\n"
+	       "\t-n, --filename              Print only 'filename'\n"
+	       "\t-0, --null                  Use \\0 instead of \\n\n"
+	       "\t-m, --modname               Handle argument as module name instead of alias or filename\n"
+	       "\t-F, --field=FIELD           Print only provided FIELD\n"
+	       "\t-k, --set-version=VERSION   Use VERSION instead of `uname -r`\n"
+	       "\t-b, --basedir=DIR           Use DIR as filesystem root for " MODULE_DIRECTORY
+	       "\n"
+	       "\t-V, --version               Show version\n"
+	       "\t-h, --help                  Show this help\n",
+	       program_invocation_short_name);
 }
 
 static bool is_module_filename(const char *name)
 {
 	struct stat st;
 
-	if (stat(name, &st) == 0 && S_ISREG(st.st_mode) &&
-		path_ends_with_kmod_ext(name, strlen(name)))
-			return true;
+	if (path_ends_with_kmod_ext(name, strlen(name)) && stat(name, &st) == 0 &&
+	    S_ISREG(st.st_mode))
+		return true;
 
 	return false;
 }
@@ -435,8 +415,7 @@ static int do_modinfo(int argc, char *argv[])
 			help();
 			return EXIT_SUCCESS;
 		case 'V':
-			puts(PACKAGE " version " VERSION);
-			puts(KMOD_FEATURES);
+			kmod_version();
 			return EXIT_SUCCESS;
 		case '?':
 			return EXIT_FAILURE;
@@ -453,6 +432,7 @@ static int do_modinfo(int argc, char *argv[])
 
 	if (root != NULL || kversion != NULL) {
 		struct utsname u;
+		int n;
 		if (root == NULL)
 			root = "";
 		if (kversion == NULL) {
@@ -462,8 +442,14 @@ static int do_modinfo(int argc, char *argv[])
 			}
 			kversion = u.release;
 		}
-		snprintf(dirname_buf, sizeof(dirname_buf), "%s/lib/modules/%s",
-			 root, kversion);
+
+		n = snprintf(dirname_buf, sizeof(dirname_buf),
+			     "%s" MODULE_DIRECTORY "/%s", root, kversion);
+		if (n >= (int)sizeof(dirname_buf)) {
+			ERR("bad directory %s" MODULE_DIRECTORY "/%s: path too long\n",
+			    root, kversion);
+			return EXIT_FAILURE;
+		}
 		dirname = dirname_buf;
 	}
 

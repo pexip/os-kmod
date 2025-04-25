@@ -1,20 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * kmod - log infrastructure
- *
  * Copyright (C) 2012-2013  ProFUSION embedded systems
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <errno.h>
@@ -62,9 +48,9 @@ static const char *prio_to_str(char buf[static PRIO_MAX_SIZE], int prio)
 	return prioname;
 }
 
-_printf_format_(6, 0)
-static void log_kmod(void *data, int priority, const char *file, int line,
-		     const char *fn, const char *format, va_list args)
+_printf_format_(6, 0) static void log_kmod(void *data, int priority, const char *file,
+					   int line, const char *fn, const char *format,
+					   va_list args)
 {
 	char buf[PRIO_MAX_SIZE];
 	const char *prioname;
@@ -76,26 +62,25 @@ static void log_kmod(void *data, int priority, const char *file, int line,
 		return;
 
 	if (log_use_syslog) {
-#ifdef ENABLE_DEBUG
-		syslog(priority, "%s: %s:%d %s() %s", prioname, file, line,
-		       fn, str);
-#else
-		syslog(priority, "%s: %s", prioname, str);
-#endif
+		if (ENABLE_DEBUG == 1)
+			syslog(priority, "%s: %s:%d %s() %s", prioname, file, line, fn,
+			       str);
+		else
+			syslog(priority, "%s: %s", prioname, str);
 	} else {
-#ifdef ENABLE_DEBUG
-		fprintf(stderr, "%s: %s: %s:%d %s() %s",
-			program_invocation_short_name, prioname, file, line,
-			fn, str);
-#else
-		fprintf(stderr, "%s: %s: %s", program_invocation_short_name,
-			prioname, str);
-#endif
+		if (ENABLE_DEBUG == 1)
+			fprintf(stderr, "%s: %s: %s:%d %s() %s",
+				program_invocation_short_name, prioname, file, line, fn,
+				str);
+		else
+			fprintf(stderr, "%s: %s: %s", program_invocation_short_name,
+				prioname, str);
 	}
 
 	free(str);
 	(void)data;
 }
+
 void log_open(bool use_syslog)
 {
 	log_use_syslog = use_syslog;
@@ -132,8 +117,8 @@ void log_printf(int prio, const char *fmt, ...)
 	if (log_use_syslog)
 		syslog(prio, "%s: %s", prioname, msg);
 	else
-		fprintf(stderr, "%s: %s: %s", program_invocation_short_name,
-			prioname, msg);
+		fprintf(stderr, "%s: %s: %s", program_invocation_short_name, prioname,
+			msg);
 	free(msg);
 
 	if (prio <= LOG_CRIT)

@@ -15,34 +15,27 @@ AM_MAKEFLAGS = --no-print-directory
 GCC_COLORS ?= 'yes'
 export GCC_COLORS
 
+# meson bits
+EXTRA_DIST += \
+	libkmod/docs/meson.build \
+	man/meson.build \
+	meson.build \
+	meson_options.txt \
+	testsuite/meson.build \
+	scripts/build-scdoc.sh \
+	scripts/sanitizer-env.sh \
+	scripts/test-gtkdoc.sh
+
 AM_CPPFLAGS = \
 	-include $(top_builddir)/config.h \
 	-I$(top_srcdir) \
 	-DSYSCONFDIR=\""$(sysconfdir)"\" \
+	-DDISTCONFDIR=\""$(distconfdir)"\" \
+	-DMODULE_DIRECTORY=\""$(module_directory)"\" \
 	${zlib_CFLAGS}
 
 AM_CFLAGS = $(OUR_CFLAGS)
 AM_LDFLAGS = $(OUR_LDFLAGS)
-
-SED_PROCESS = \
-	$(AM_V_GEN)$(MKDIR_P) $(dir $@) && $(SED) \
-	-e 's,@VERSION\@,$(VERSION),g' \
-	-e 's,@prefix\@,$(prefix),g' \
-	-e 's,@exec_prefix\@,$(exec_prefix),g' \
-	-e 's,@libdir\@,$(libdir),g' \
-	-e 's,@includedir\@,$(includedir),g' \
-	-e 's,@libzstd_CFLAGS\@,${libzstd_CFLAGS},g' \
-	-e 's,@libzstd_LIBS\@,${libzstd_LIBS},g' \
-	-e 's,@liblzma_CFLAGS\@,${liblzma_CFLAGS},g' \
-	-e 's,@liblzma_LIBS\@,${liblzma_LIBS},g' \
-	-e 's,@zlib_CFLAGS\@,${zlib_CFLAGS},g' \
-	-e 's,@zlib_LIBS\@,${zlib_LIBS},g' \
-	-e 's,@libcrypto_CFLAGS\@,${libcrypto_CFLAGS},g' \
-	-e 's,@libcrypto_LIBS\@,${libcrypto_LIBS},g' \
-	< $< > $@ || rm $@
-
-%.pc: %.pc.in Makefile
-	$(SED_PROCESS)
 
 # Rules for libtool versioning (from https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html)
 # 1. Start with version information of ‘0:0:0’ for each libtool library.
@@ -57,20 +50,19 @@ SED_PROCESS = \
 #    increment age.
 # 6. If any interfaces have been removed or changed since the last public
 #    release, then set age to 0.
-LIBKMOD_CURRENT=6
-LIBKMOD_REVISION=0
-LIBKMOD_AGE=4
+LIBKMOD_CURRENT=7
+LIBKMOD_REVISION=1
+LIBKMOD_AGE=5
 
 noinst_LTLIBRARIES = shared/libshared.la
 shared_libshared_la_SOURCES = \
-	shared/macro.h \
-	shared/missing.h \
 	shared/array.c \
 	shared/array.h \
+	shared/elf-note.h \
 	shared/hash.c \
 	shared/hash.h \
-	shared/scratchbuf.c \
-	shared/scratchbuf.h \
+	shared/macro.h \
+	shared/missing.h \
 	shared/strbuf.c \
 	shared/strbuf.h \
 	shared/util.c \
@@ -80,18 +72,31 @@ include_HEADERS = libkmod/libkmod.h
 lib_LTLIBRARIES = libkmod/libkmod.la
 
 libkmod_libkmod_la_SOURCES = \
-	libkmod/libkmod.h \
-	libkmod/libkmod-internal.h \
-	libkmod/libkmod.c \
 	libkmod/libkmod-builtin.c \
-	libkmod/libkmod-list.c \
+	libkmod/libkmod.c \
 	libkmod/libkmod-config.c \
+	libkmod/libkmod-elf.c \
+	libkmod/libkmod-file.c \
+	libkmod/libkmod.h \
 	libkmod/libkmod-index.c \
 	libkmod/libkmod-index.h \
+	libkmod/libkmod-internal-file.h \
+	libkmod/libkmod-internal.h \
+	libkmod/libkmod-list.c \
 	libkmod/libkmod-module.c \
-	libkmod/libkmod-file.c \
-	libkmod/libkmod-elf.c \
 	libkmod/libkmod-signature.c
+
+if ENABLE_XZ
+libkmod_libkmod_la_SOURCES += libkmod/libkmod-file-xz.c
+endif
+
+if ENABLE_ZLIB
+libkmod_libkmod_la_SOURCES += libkmod/libkmod-file-zlib.c
+endif
+
+if ENABLE_ZSTD
+libkmod_libkmod_la_SOURCES += libkmod/libkmod-file-zstd.c
+endif
 
 EXTRA_DIST += libkmod/libkmod.sym
 EXTRA_DIST += libkmod/README \
@@ -114,26 +119,42 @@ libkmod_libkmod_internal_la_LDFLAGS = $(AM_LDFLAGS) \
 libkmod_libkmod_internal_la_DEPENDENCIES  = $(libkmod_libkmod_la_DEPENDENCIES)
 libkmod_libkmod_internal_la_LIBADD = $(libkmod_libkmod_la_LIBADD)
 
-pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libkmod/libkmod.pc
-EXTRA_DIST += libkmod/libkmod.pc.in
-CLEANFILES += libkmod/libkmod.pc
+noarch_pkgconfig_DATA = tools/kmod.pc
 
 bashcompletiondir=@bashcompletiondir@
 dist_bashcompletion_DATA = \
-	shell-completion/bash/kmod
+	shell-completion/bash/insmod \
+	shell-completion/bash/kmod \
+	shell-completion/bash/lsmod \
+	shell-completion/bash/rmmod
+
+fishcompletiondir=@fishcompletiondir@
+dist_fishcompletion_DATA = \
+	shell-completion/fish/insmod.fish \
+	shell-completion/fish/lsmod.fish \
+	shell-completion/fish/rmmod.fish
+
+zshcompletiondir=@zshcompletiondir@
+dist_zshcompletion_DATA = \
+	shell-completion/zsh/_insmod \
+	shell-completion/zsh/_lsmod \
+	shell-completion/zsh/_rmmod
 
 install-exec-hook:
-	if test "$(libdir)" != "$(rootlibdir)"; then \
-		$(MKDIR_P) $(DESTDIR)$(rootlibdir) && \
-		so_img_name=$$(readlink $(DESTDIR)$(libdir)/libkmod.so) && \
-		so_img_rel_target_prefix=$$(echo $(libdir) | sed 's,\(^/\|\)[^/][^/]*,..,g') && \
-		ln -sf $$so_img_rel_target_prefix$(rootlibdir)/$$so_img_name $(DESTDIR)$(libdir)/libkmod.so && \
-		mv $(DESTDIR)$(libdir)/libkmod.so.* $(DESTDIR)$(rootlibdir); \
-	fi
+if BUILD_TOOLS
+	for tool in insmod lsmod rmmod depmod modprobe modinfo; do \
+		$(MKDIR_P) $(DESTDIR)$(sbindir); \
+		$(LN_S) --force --relative $(DESTDIR)$(bindir)/kmod $(DESTDIR)$(sbindir)/$$tool; \
+	done
+endif
 
 uninstall-hook:
-	rm -f $(DESTDIR)$(rootlibdir)/libkmod.so*
+if BUILD_TOOLS
+	for tool in insmod lsmod rmmod depmod modprobe modinfo; do \
+		rm -f $(DESTDIR)$(bindir)/$$tool; \
+	done
+endif
 
 if BUILD_TOOLS
 bin_PROGRAMS = tools/kmod
@@ -143,17 +164,19 @@ noinst_SCRIPTS = \
 	tools/modprobe tools/modinfo tools/depmod
 
 tools_kmod_SOURCES = \
-	tools/kmod.c tools/kmod.h tools/lsmod.c \
-	tools/rmmod.c tools/insmod.c \
-	tools/modinfo.c tools/modprobe.c \
-	tools/depmod.c tools/log.h tools/log.c \
+	tools/depmod.c \
+	tools/insmod.c \
+	tools/kmod.c \
+	tools/kmod.h \
+	tools/log.c \
+	tools/log.h \
+	tools/lsmod.c \
+	tools/modinfo.c \
+	tools/modprobe.c \
+	tools/opt.c \
+	tools/opt.h \
+	tools/rmmod.c \
 	tools/static-nodes.c
-
-if BUILD_EXPERIMENTAL
-tools_kmod_SOURCES += \
-	tools/insert.c \
-	tools/remove.c
-endif
 
 tools_kmod_LDADD = \
 	shared/libshared.la \
@@ -165,105 +188,20 @@ ${noinst_SCRIPTS}: tools/kmod
 endif
 
 # ------------------------------------------------------------------------------
-# PYTHON BINDINGS
-# ------------------------------------------------------------------------------
-
-CYTHON_FLAGS_VERBOSE_ =
-CYTHON_FLAGS_VERBOSE_0 =
-CYTHON_FLAGS_VERBOSE_1 = -v
-CYTHON_FLAGS = $(CYTHON_FLAGS_VERBOSE_$(V))
-AM_V_CYTHON = $(am__v_CYTHON_$(V))
-am__v_CYTHON_ = $(am__v_CYTHON_$(AM_DEFAULT_VERBOSITY))
-am__v_CYTHON_0 = @echo "  CYTHON " $@;
-
-.pyx.c:
-	$(AM_V_CYTHON)$(CYTHON) -o $@ $<
-
-%.py: %.py.in Makefile
-	$(SED_PROCESS)
-
-# Remove some warnings for generated code
-PYTHON_NOWARN = -Wno-redundant-decls -Wno-shadow -Wno-strict-aliasing
-
-CPYTHON_MODULE_CFLAGS = \
-	$(AM_CFLAGS) -DCPYTHON_COMPILING_IN_PYPY=0 \
-	$(PYTHON_NOWARN) $(PYTHON_CFLAGS) \
-	-fvisibility=default
-# Filter -Wl,--no-undefined to fix build with python 3.8
-comma = ,
-CPYTHON_MODULE_LDFLAGS = $(subst -Wl$(comma)--no-undefined,,$(AM_LDFLAGS))
-CPYTHON_MODULE_LDFLAGS += -module -avoid-version -shared
-
-if BUILD_PYTHON
-pkgpyexec_LTLIBRARIES = \
-	libkmod/python/kmod/kmod.la \
-	libkmod/python/kmod/list.la \
-	libkmod/python/kmod/module.la \
-	libkmod/python/kmod/_util.la
-
-libkmod_python_kmod_kmod_la_SOURCES = libkmod/python/kmod/kmod.c
-libkmod_python_kmod_kmod_la_CFLAGS = $(CPYTHON_MODULE_CFLAGS)
-libkmod_python_kmod_kmod_la_LDFLAGS = $(CPYTHON_MODULE_LDFLAGS)
-libkmod_python_kmod_kmod_la_LIBADD = $(PYTHON_LIBS) libkmod/libkmod.la
-
-libkmod_python_kmod_list_la_SOURCES = libkmod/python/kmod/list.c
-libkmod_python_kmod_list_la_CFLAGS = $(CPYTHON_MODULE_CFLAGS)
-libkmod_python_kmod_list_la_LDFLAGS = $(CPYTHON_MODULE_LDFLAGS)
-libkmod_python_kmod_list_la_LIBADD = $(PYTHON_LIBS) libkmod/libkmod.la
-
-libkmod_python_kmod_module_la_SOURCES = libkmod/python/kmod/module.c
-libkmod_python_kmod_module_la_CFLAGS = $(CPYTHON_MODULE_CFLAGS)
-libkmod_python_kmod_module_la_LDFLAGS = $(CPYTHON_MODULE_LDFLAGS)
-libkmod_python_kmod_module_la_LIBADD = $(PYTHON_LIBS) libkmod/libkmod.la
-
-libkmod_python_kmod__util_la_SOURCES = libkmod/python/kmod/_util.c
-libkmod_python_kmod__util_la_CFLAGS = $(CPYTHON_MODULE_CFLAGS)
-libkmod_python_kmod__util_la_LDFLAGS = $(CPYTHON_MODULE_LDFLAGS)
-libkmod_python_kmod__util_la_LIBADD = $(PYTHON_LIBS) libkmod/libkmod.la
-
-BUILT_FILES += \
-	$(libkmod_python_kmod_kmod_la_SOURCES) \
-	$(libkmod_python_kmod_list_la_SOURCES) \
-	$(libkmod_python_kmod_module_la_SOURCES) \
-	$(libkmod_python_kmod__util_la_SOURCES)
-
-dist_pkgpyexec_PYTHON = \
-	libkmod/python/kmod/error.py \
-	libkmod/python/kmod/__init__.py \
-	libkmod/python/kmod/version.py
-
-BUILT_FILES += libkmod/python/kmod/version.py
-
-endif
-# ------------------------------------------------------------------------------
 # TESTSUITE
 # ------------------------------------------------------------------------------
 
-EXTRA_DIST += testsuite/populate-modules.sh
+EXTRA_DIST += scripts/setup-modules.sh
+EXTRA_DIST += scripts/setup-rootfs.sh
 
 MODULE_PLAYGROUND = testsuite/module-playground
+BUILD_MODULES = $(AM_V_GEN) $(top_srcdir)/scripts/setup-modules.sh $(top_srcdir) $(top_builddir) $(MODULE_PLAYGROUND)
 ROOTFS = testsuite/rootfs
 ROOTFS_PRISTINE = $(top_srcdir)/testsuite/rootfs-pristine
-CREATE_ROOTFS = $(AM_V_GEN) ( $(RM) -rf $(ROOTFS) && mkdir -p $(dir $(ROOTFS)) && \
-				cp -r $(ROOTFS_PRISTINE) $(ROOTFS) && \
-				find $(ROOTFS) -type d -exec chmod +w {} \; && \
-				find $(ROOTFS) -type f -name .gitignore -exec rm -f {} \; && \
-				$(top_srcdir)/testsuite/populate-modules.sh \
-					$(MODULE_PLAYGROUND) $(ROOTFS) $(top_builddir)/config.h ) && \
-				touch testsuite/stamp-rootfs
+CREATE_ROOTFS = $(AM_V_GEN) $(top_srcdir)/scripts/setup-rootfs.sh $(ROOTFS_PRISTINE) $(ROOTFS) $(MODULE_PLAYGROUND) $(top_builddir)/config.h $(sysconfdir) $(module_directory)
 
 build-module-playground:
-	$(AM_V_GEN)if test "$(top_srcdir)" != "$(top_builddir)"; then \
-		$(RM) -rf testsuite/module-playground && \
-		mkdir -p testsuite/ && \
-		cp -r $(top_srcdir)/$(MODULE_PLAYGROUND) $(top_builddir)/$(MODULE_PLAYGROUND) && \
-		find $(top_builddir)/$(MODULE_PLAYGROUND) -type d -exec chmod +w {} \; ; \
-		fi
-if BUILD_MODULES
-	$(MAKE) -C $(MODULE_PLAYGROUND)
-else
-	$(MAKE) -C $(MODULE_PLAYGROUND) FAKE_BUILD=1
-endif
+	$(BUILD_MODULES)
 
 
 rootfs: build-module-playground
@@ -279,16 +217,16 @@ TESTSUITE_OVERRIDE_LIBS = \
 	testsuite/init_module.la \
 	testsuite/delete_module.la
 TESTSUITE_OVERRIDE_LIBS_LDFLAGS = \
-	avoid-version -module -shared -export-dynamic -rpath /nowhere -ldl
+	-avoid-version -module -shared -rpath /nowhere -ldl
 
 check-am: rootfs
 
 
 EXTRA_DIST += \
-	testsuite/module-playground/cache \
 	testsuite/module-playground/dummy.pkcs7 \
 	testsuite/module-playground/dummy.sha1 \
 	testsuite/module-playground/dummy.sha256 \
+	testsuite/module-playground/Kbuild \
 	testsuite/module-playground/Makefile \
 	testsuite/module-playground/Makefile.arch \
 	testsuite/module-playground/mod-fake-cciss.c \
@@ -311,9 +249,7 @@ EXTRA_DIST += \
 	testsuite/module-playground/mod-loop-k.c \
 	testsuite/module-playground/mod-loop.h \
 	testsuite/module-playground/mod-simple.c \
-	testsuite/module-playground/mod-simple-i386.ko \
-	testsuite/module-playground/mod-simple-sparc64.ko \
-	testsuite/module-playground/mod-simple-x86_64.ko \
+	testsuite/module-playground/mod-weakdep.c \
 	testsuite/module-playground/README
 
 check_LTLIBRARIES = $(TESTSUITE_OVERRIDE_LIBS)
@@ -331,14 +267,11 @@ testsuite_init_module_la_LIBADD = libkmod/libkmod-internal.la
 
 TESTSUITE_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DTESTSUITE_ROOTFS=\"$(abs_top_builddir)/$(ROOTFS)/\" \
-	-DABS_TOP_BUILDDIR=\"$(abs_top_builddir)\"
+	-DTOOLS_DIR=\"$(abs_top_builddir)/tools\" \
+	-DOVERRIDE_LIBDIR=\"$(abs_top_builddir)/testsuite/.libs/\"
 TESTSUITE_LDADD = \
 	testsuite/libtestsuite.la libkmod/libkmod-internal.la \
 	shared/libshared.la
-
-if KMOD_SYSCONFDIR_NOT_ETC
-TESTSUITE_CPPFLAGS += -DKMOD_SYSCONFDIR_NOT_ETC
-endif
 
 check_LTLIBRARIES += testsuite/libtestsuite.la
 testsuite_libtestsuite_la_SOURCES = \
@@ -349,22 +282,22 @@ testsuite_libtestsuite_la_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
 testsuite_libtestsuite_la_LIBADD = -lrt
 
 TESTSUITE = \
-	testsuite/test-hash \
 	testsuite/test-array \
-	testsuite/test-scratchbuf \
-	testsuite/test-strbuf \
+	testsuite/test-blacklist \
+	testsuite/test-dependencies \
+	testsuite/test-depmod \
+	testsuite/test-hash \
 	testsuite/test-init \
 	testsuite/test-initstate \
-	testsuite/test-testsuite testsuite/test-loaded \
-	testsuite/test-modinfo testsuite/test-util testsuite/test-new-module \
-	testsuite/test-modprobe testsuite/test-blacklist \
-	testsuite/test-dependencies testsuite/test-depmod \
-	testsuite/test-list
-
-if BUILD_EXPERIMENTAL
-TESTSUITE += \
-	testsuite/test-tools
-endif
+	testsuite/test-list \
+	testsuite/test-loaded \
+	testsuite/test-modinfo \
+	testsuite/test-modprobe \
+	testsuite/test-new-module \
+	testsuite/test-strbuf \
+	testsuite/test-testsuite \
+	testsuite/test-util \
+	testsuite/test-weakdep
 
 check_PROGRAMS = $(TESTSUITE)
 TESTS = $(TESTSUITE)
@@ -378,9 +311,6 @@ testsuite_test_hash_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
 
 testsuite_test_array_LDADD = $(TESTSUITE_LDADD)
 testsuite_test_array_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
-
-testsuite_test_scratchbuf_LDADD = $(TESTSUITE_LDADD)
-testsuite_test_scratchbuf_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
 
 testsuite_test_strbuf_LDADD = $(TESTSUITE_LDADD)
 testsuite_test_strbuf_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
@@ -407,16 +337,13 @@ testsuite_test_depmod_LDADD = $(TESTSUITE_LDADD)
 testsuite_test_depmod_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
 testsuite_test_list_LDADD = $(TESTSUITE_LDADD)
 testsuite_test_list_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
-
-if BUILD_EXPERIMENTAL
-testsuite_test_tools_LDADD = $(TESTSUITE_LDADD)
-testsuite_test_tools_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
-endif
+testsuite_test_weakdep_LDADD = $(TESTSUITE_LDADD)
+testsuite_test_weakdep_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
 
 testsuite-distclean:
 	$(RM) -r $(ROOTFS)
 	$(RM) testsuite/stamp-rootfs
-	$(MAKE) -C testsuite/module-playground/ clean
+	$(MAKE) -C $(MODULE_PLAYGROUND) clean
 	if test "$(top_srcdir)" != "$(top_builddir)"; then \
 		$(RM) -rf testsuite/module-playground; \
 	fi
@@ -424,9 +351,11 @@ testsuite-distclean:
 DISTCLEAN_LOCAL_HOOKS += testsuite-distclean
 EXTRA_DIST += testsuite/rootfs-pristine
 
-DISTCHECK_CONFIGURE_FLAGS=--enable-gtk-doc --enable-python --sysconfdir=/etc \
-	--with-zlib --with-zstd --with-openssl \
-	--with-bashcompletiondir=$$dc_install_base/$(bashcompletiondir)
+AM_DISTCHECK_CONFIGURE_FLAGS=--enable-gtk-doc --sysconfdir=/etc \
+	--with-zlib --with-zstd --with-xz --with-openssl \
+	--with-bashcompletiondir=$$dc_install_base/$(bashcompletiondir) \
+	--with-fishcompletiondir=$$dc_install_base/$(fishcompletiondir) \
+	--with-zshcompletiondir=$$dc_install_base/$(zshcompletiondir)
 
 distclean-local: $(DISTCLEAN_LOCAL_HOOKS)
 
@@ -478,7 +407,7 @@ endif
 
 kmod-coverity-%.tar.xz:
 	rm -rf $< cov-int
-	./autogen.sh c --disable-python --disable-manpages
+	./autogen.sh c --disable-manpages
 	make clean
 	cov-build --dir cov-int make -j 4
 	tar caf $@ cov-int
@@ -503,7 +432,7 @@ coverity-clean:
 
 git-release:
 	head -1 NEWS | grep -q "kmod $(VERSION)"
-	git commit -a -m "kmod $(VERSION)"
+	git commit -a -s -m "kmod $(VERSION)"
 	git tag -m "kmod $(VERSION)" -s v$(VERSION)
 	git gc --prune=0
 
@@ -517,13 +446,3 @@ tar: kmod-$(VERSION).tar.xz kmod-$(VERSION).tar.sign
 
 tar-sync: kmod-$(VERSION).tar.xz kmod-$(VERSION).tar.sign
 	kup put kmod-$(VERSION).tar.xz  kmod-$(VERSION).tar.sign /pub/linux/utils/kernel/kmod/
-
-# ------------------------------------------------------------------------------
-# mkosi
-# ------------------------------------------------------------------------------
-
-DISTRO ?= "arch"
-
-mkosi:
-	-$(MKDIR_P) $(top_srcdir)/testsuite/mkosi/mkosi.cache
-	$(MKOSI) -C $(top_srcdir)/testsuite/mkosi --build-sources ../../ --default mkosi.${DISTRO} -fi

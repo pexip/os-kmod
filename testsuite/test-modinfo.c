@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Copyright (C) 2012-2013  ProFUSION embedded systems
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <errno.h>
@@ -25,20 +13,18 @@
 
 #include "testsuite.h"
 
-static const char *progname = ABS_TOP_BUILDDIR "/tools/modinfo";
+static const char *progname = TOOLS_DIR "/modinfo";
 
-#define DEFINE_MODINFO_TEST(_field, _flavor, ...) \
-static noreturn int test_modinfo_##_field(const struct test *t) \
-{ \
-	const char *const args[] = { \
-		progname, "-F", #_field ,\
-		__VA_ARGS__ , \
-		NULL, \
-	}; \
-	test_spawn_prog(progname, args); \
-	exit(EXIT_FAILURE); \
-} \
-DEFINE_TEST(test_modinfo_##_field, \
+#define DEFINE_MODINFO_TEST(_field, _flavor, ...)                       \
+	static noreturn int test_modinfo_##_field(const struct test *t) \
+	{                                                               \
+		const char *const args[] = {                            \
+			progname, "-F", #_field, __VA_ARGS__, NULL,     \
+		};                                                      \
+		test_spawn_prog(progname, args);                        \
+		exit(EXIT_FAILURE);                                     \
+	}                                                               \
+	DEFINE_TEST(test_modinfo_##_field, \
 	.description = "check " #_field " output of modinfo for different architectures", \
 	.config = { \
 		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-modinfo/", \
@@ -47,23 +33,17 @@ DEFINE_TEST(test_modinfo_##_field, \
 		.out = TESTSUITE_ROOTFS "test-modinfo/correct-" #_field #_flavor ".txt", \
 	})
 
+/* TODO: add cross-compiled modules to the test */
 #define DEFINE_MODINFO_GENERIC_TEST(_field) \
-	DEFINE_MODINFO_TEST(_field, , \
-			    "/mod-simple-i386.ko", \
-			    "/mod-simple-x86_64.ko", \
-			    "/mod-simple-sparc64.ko")
+	DEFINE_MODINFO_TEST(_field, , "/mod-simple.ko")
 
-#ifdef ENABLE_OPENSSL
-#define DEFINE_MODINFO_SIGN_TEST(_field) \
-	DEFINE_MODINFO_TEST(_field, -openssl, \
-			    "/mod-simple-sha1.ko", \
-			    "/mod-simple-sha256.ko",	\
-			    "/mod-simple-pkcs7.ko")
+#if ENABLE_OPENSSL
+#define DEFINE_MODINFO_SIGN_TEST(_field)                             \
+	DEFINE_MODINFO_TEST(_field, -openssl, "/mod-simple-sha1.ko", \
+			    "/mod-simple-sha256.ko", "/mod-simple-pkcs7.ko")
 #else
-#define DEFINE_MODINFO_SIGN_TEST(_field) \
-	DEFINE_MODINFO_TEST(_field, , \
-			    "/mod-simple-sha1.ko", \
-			    "/mod-simple-sha256.ko",	\
+#define DEFINE_MODINFO_SIGN_TEST(_field)                                              \
+	DEFINE_MODINFO_TEST(_field, , "/mod-simple-sha1.ko", "/mod-simple-sha256.ko", \
 			    "/mod-simple-pkcs7.ko")
 #endif
 
@@ -102,9 +82,12 @@ DEFINE_TEST(test_modinfo_signature,
 static noreturn int test_modinfo_external(const struct test *t)
 {
 	const char *const args[] = {
-		progname, "-F", "filename",
+		// clang-format off
+		progname,
+		"-F", "filename",
 		"mod-simple",
 		NULL,
+		// clang-format on
 	};
 	test_spawn_prog(progname, args);
 	exit(EXIT_FAILURE);
@@ -117,6 +100,28 @@ DEFINE_TEST(test_modinfo_external,
 	},
 	.output = {
 		.out = TESTSUITE_ROOTFS "test-modinfo/correct-external.txt",
-	})
+	});
+
+static noreturn int test_modinfo_builtin(const struct test *t)
+{
+	const char *const args[] = {
+		// clang-format off
+		progname,
+		"intel_uncore",
+		NULL,
+		// clang-format on
+	};
+	test_spawn_prog(progname, args);
+	exit(EXIT_FAILURE);
+}
+DEFINE_TEST(test_modinfo_builtin,
+	.description = "check if modinfo finds builtin module",
+	.config = {
+		[TC_ROOTFS] = TESTSUITE_ROOTFS "test-modinfo/builtin",
+		[TC_UNAME_R] = "6.11.0",
+	},
+	.output = {
+		.out = TESTSUITE_ROOTFS "test-modinfo/correct-builtin.txt",
+	});
 
 TESTSUITE_MAIN();

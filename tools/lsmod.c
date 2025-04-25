@@ -1,23 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * kmod-lsmod - list modules from linux kernel using libkmod.
- *
  * Copyright (C) 2011-2013  ProFUSION embedded systems
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <errno.h>
+#include <getopt.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,30 +15,82 @@
 
 #include "kmod.h"
 
+static const char cmdopts_s[] = "svVh";
+static const struct option cmdopts[] = {
+	// clang-format off
+	{ "syslog", no_argument, 0, 's' },
+	{ "verbose", no_argument, 0, 'v' },
+	{ "version", no_argument, 0, 'V' },
+	{ "help", no_argument, 0, 'h' },
+	{ NULL, 0, 0, 0 },
+	// clang-format on
+};
+
+static void help(void)
+{
+	printf("Usage:\n"
+	       "\t%s [options]\n"
+	       "Options:\n"
+	       "\t-s, --syslog      print to syslog, not stderr\n"
+	       "\t-v, --verbose     enables more messages\n"
+	       "\t-V, --version     show version\n"
+	       "\t-h, --help        show this help\n",
+	       program_invocation_short_name);
+}
+
 static int do_lsmod(int argc, char *argv[])
 {
-	struct kmod_ctx *ctx;
+	struct kmod_ctx *ctx = NULL;
 	const char *null_config = NULL;
 	struct kmod_list *list, *itr;
-	int err;
+	int verbose = LOG_ERR;
+	bool use_syslog = false;
+	int err, c, r = 0;
 
-	if (argc != 1) {
-		fprintf(stderr, "Usage: %s\n", argv[0]);
-		return EXIT_FAILURE;
+	while ((c = getopt_long(argc, argv, cmdopts_s, cmdopts, NULL)) != -1) {
+		switch (c) {
+		case 's':
+			use_syslog = true;
+			break;
+		case 'v':
+			verbose++;
+			break;
+		case 'h':
+			help();
+			return EXIT_SUCCESS;
+		case 'V':
+			kmod_version();
+			return EXIT_SUCCESS;
+		case '?':
+			return EXIT_FAILURE;
+		default:
+			ERR("unexpected getopt_long() value '%c'.\n", c);
+			return EXIT_FAILURE;
+		}
+	}
+
+	log_open(use_syslog);
+
+	if (optind < argc) {
+		ERR("too many arguments provided.\n");
+		r = EXIT_FAILURE;
+		goto done;
 	}
 
 	ctx = kmod_new(NULL, &null_config);
-	if (ctx == NULL) {
-		fputs("Error: kmod_new() failed!\n", stderr);
-		return EXIT_FAILURE;
+	if (!ctx) {
+		ERR("kmod_new() failed!\n");
+		r = EXIT_FAILURE;
+		goto done;
 	}
+
+	log_setup_kmod_log(ctx, verbose);
 
 	err = kmod_module_new_from_loaded(ctx, &list);
 	if (err < 0) {
-		fprintf(stderr, "Error: could not get list of modules: %s\n",
-			strerror(-err));
-		kmod_unref(ctx);
-		return EXIT_FAILURE;
+		ERR("could not get list of modules: %s\n", strerror(-err));
+		r = EXIT_FAILURE;
+		goto done;
 	}
 
 	puts("Module                  Size  Used by");
@@ -62,19 +101,15 @@ static int do_lsmod(int argc, char *argv[])
 		int use_count = kmod_module_get_refcnt(mod);
 		long size = kmod_module_get_size(mod);
 		struct kmod_list *holders, *hitr;
-		int first = 1;
+		int sep = ' ';
 
 		printf("%-19s %8ld  %d", name, size, use_count);
 		holders = kmod_module_get_holders(mod);
 		kmod_list_foreach(hitr, holders) {
 			struct kmod_module *hm = kmod_module_get_module(hitr);
 
-			if (!first) {
-				putchar(',');
-			} else {
-				putchar(' ');
-				first = 0;
-			}
+			putchar(sep);
+			sep = ',';
 
 			fputs(kmod_module_get_name(hm), stdout);
 			kmod_module_unref(hm);
@@ -84,9 +119,12 @@ static int do_lsmod(int argc, char *argv[])
 		kmod_module_unref(mod);
 	}
 	kmod_module_unref_list(list);
-	kmod_unref(ctx);
 
-	return EXIT_SUCCESS;
+done:
+	kmod_unref(ctx);
+	log_close();
+
+	return r == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 const struct kmod_cmd kmod_cmd_compat_lsmod = {

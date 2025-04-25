@@ -1,22 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * kmod-static-nodes - manage modules.devname
  *
  * Copyright (C) 2004-2012 Kay Sievers <kay@vrfy.org>
  * Copyright (C) 2011-2013  ProFUSION embedded systems
  * Copyright (C) 2013 Tom Gundersen <teg@jklm.no>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <errno.h>
@@ -53,28 +41,28 @@ static const struct static_nodes_format *static_nodes_formats[] = {
 
 static const char cmdopts_s[] = "o:f:h";
 static const struct option cmdopts[] = {
-	{ "output", required_argument, 0, 'o'},
-	{ "format", required_argument, 0, 'f'},
-	{ "help", no_argument, 0, 'h'},
-	{ },
+	{ "output", required_argument, 0, 'o' },
+	{ "format", required_argument, 0, 'f' },
+	{ "help", no_argument, 0, 'h' },
+	{},
 };
 
-static int write_human(FILE *out, char modname[], char devname[], char type, unsigned int maj, unsigned int min)
+static int write_human(FILE *out, char modname[], char devname[], char type,
+		       unsigned int maj, unsigned int min)
 {
 	int ret;
 
 	ret = fprintf(out,
-			"Module: %s\n"
-			"\tDevice node: /dev/%s\n"
-			"\t\tType: %s device\n"
-			"\t\tMajor: %u\n"
-			"\t\tMinor: %u\n",
-			modname, devname,
-			(type == 'c') ? "character" : "block", maj, min);
-	if (ret >= 0)
-		return EXIT_SUCCESS;
-	else
+		      "Module: %s\n"
+		      "\tDevice node: /dev/%s\n"
+		      "\t\tType: %s device\n"
+		      "\t\tMajor: %u\n"
+		      "\t\tMinor: %u\n",
+		      modname, devname, (type == 'c') ? "character" : "block", maj, min);
+	if (ret < 0)
 		return EXIT_FAILURE;
+
+	return EXIT_SUCCESS;
 }
 
 static const struct static_nodes_format static_nodes_format_human = {
@@ -83,21 +71,21 @@ static const struct static_nodes_format static_nodes_format_human = {
 	.description = "(default) a human readable format. Do not parse.",
 };
 
-static int write_tmpfiles(FILE *out, char modname[], char devname[], char type, unsigned int maj, unsigned int min)
+static int write_tmpfiles(FILE *out, char modname[], char devname[], char type,
+			  unsigned int maj, unsigned int min)
 {
 	const char *dir;
 	int ret;
 
 	dir = strrchr(devname, '/');
 	if (dir) {
-		ret = fprintf(out, "d /dev/%.*s 0755 - - -\n",
-			      (int)(dir - devname), devname);
+		ret = fprintf(out, "d /dev/%.*s 0755 - - -\n", (int)(dir - devname),
+			      devname);
 		if (ret < 0)
 			return EXIT_FAILURE;
 	}
 
-	ret = fprintf(out, "%c! /dev/%s 0600 - - - %u:%u\n",
-		      type, devname, maj, min);
+	ret = fprintf(out, "%c! /dev/%s 0600 - - - %u:%u\n", type, devname, maj, min);
 	if (ret < 0)
 		return EXIT_FAILURE;
 
@@ -110,15 +98,16 @@ static const struct static_nodes_format static_nodes_format_tmpfiles = {
 	.description = "the tmpfiles.d(5) format used by systemd-tmpfiles.",
 };
 
-static int write_devname(FILE *out, char modname[], char devname[], char type, unsigned int maj, unsigned int min)
+static int write_devname(FILE *out, char modname[], char devname[], char type,
+			 unsigned int maj, unsigned int min)
 {
 	int ret;
 
 	ret = fprintf(out, "%s %s %c%u:%u\n", modname, devname, type, maj, min);
-	if (ret >= 0)
-		return EXIT_SUCCESS;
-	else
+	if (ret < 0)
 		return EXIT_FAILURE;
+
+	return EXIT_SUCCESS;
 }
 
 static const struct static_nodes_format static_nodes_format_devname = {
@@ -142,7 +131,7 @@ static void help(void)
 	       "\t-h, --help           show this help\n"
 	       "\n"
 	       "Formats:\n",
-	 program_invocation_short_name);
+	       program_invocation_short_name);
 
 	for (i = 0; i < ARRAY_SIZE(static_nodes_formats); i++) {
 		if (static_nodes_formats[i]->description != NULL) {
@@ -155,8 +144,8 @@ static void help(void)
 static int do_static_nodes(int argc, char *argv[])
 {
 	struct utsname kernel;
-	char modules[PATH_MAX], buf[4096];
-	const char *output = "/dev/stdout";
+	char modules[PATH_MAX], buf[PATH_MAX];
+	const char *output = NULL;
 	FILE *in = NULL, *out = NULL;
 	const struct static_nodes_format *format = &static_nodes_format_human;
 	int r, ret = EXIT_SUCCESS;
@@ -184,8 +173,7 @@ static int do_static_nodes(int argc, char *argv[])
 			}
 
 			if (!valid) {
-				fprintf(stderr, "Unknown format: '%s'.\n",
-					optarg);
+				fprintf(stderr, "Unknown format: '%s'.\n", optarg);
 				help();
 				ret = EXIT_FAILURE;
 				goto finish;
@@ -198,8 +186,7 @@ static int do_static_nodes(int argc, char *argv[])
 			ret = EXIT_FAILURE;
 			goto finish;
 		default:
-			fprintf(stderr, "Unexpected commandline option '%c'.\n",
-				c);
+			fprintf(stderr, "Unexpected commandline option '%c'.\n", c);
 			help();
 			ret = EXIT_FAILURE;
 			goto finish;
@@ -212,33 +199,52 @@ static int do_static_nodes(int argc, char *argv[])
 		goto finish;
 	}
 
-	snprintf(modules, sizeof(modules), "/lib/modules/%s/modules.devname", kernel.release);
+	r = snprintf(modules, sizeof(modules), MODULE_DIRECTORY "/%s/modules.devname",
+		     kernel.release);
+	if (r >= (int)sizeof(modules)) {
+		fprintf(stderr,
+			"Error: could not open " MODULE_DIRECTORY
+			"/%s/modules.devname - path too long\n",
+			kernel.release);
+		ret = EXIT_FAILURE;
+		goto finish;
+	}
 	in = fopen(modules, "re");
 	if (in == NULL) {
 		if (errno == ENOENT) {
-			fprintf(stderr, "Warning: /lib/modules/%s/modules.devname not found - ignoring\n",
+			fprintf(stderr,
+				"Warning: " MODULE_DIRECTORY
+				"/%s/modules.devname not found - ignoring\n",
 				kernel.release);
 			ret = EXIT_SUCCESS;
 		} else {
-			fprintf(stderr, "Error: could not open /lib/modules/%s/modules.devname - %m\n",
+			fprintf(stderr,
+				"Error: could not open " MODULE_DIRECTORY
+				"/%s/modules.devname - %m\n",
 				kernel.release);
 			ret = EXIT_FAILURE;
 		}
 		goto finish;
 	}
 
-	r = mkdir_parents(output, 0755);
-	if (r < 0) {
-		fprintf(stderr, "Error: could not create parent directory for %s - %m.\n", output);
-		ret = EXIT_FAILURE;
-		goto finish;
-	}
+	if (output == NULL) {
+		out = stdout;
+	} else {
+		r = mkdir_parents(output, 0755);
+		if (r < 0) {
+			fprintf(stderr,
+				"Error: could not create parent directory for %s - %m.\n",
+				output);
+			ret = EXIT_FAILURE;
+			goto finish;
+		}
 
-	out = fopen(output, "we");
-	if (out == NULL) {
-		fprintf(stderr, "Error: could not create %s - %m\n", output);
-		ret = EXIT_FAILURE;
-		goto finish;
+		out = fopen(output, "we");
+		if (out == NULL) {
+			fprintf(stderr, "Error: could not create %s - %m\n", output);
+			ret = EXIT_FAILURE;
+			goto finish;
+		}
 	}
 
 	while (fgets(buf, sizeof(buf), in) != NULL) {
@@ -251,8 +257,8 @@ static int do_static_nodes(int argc, char *argv[])
 		if (buf[0] == '#')
 			continue;
 
-		matches = sscanf(buf, "%s %s %c%u:%u", modname, devname,
-				 &type, &maj, &min);
+		matches =
+			sscanf(buf, "%s %s %c%u:%u", modname, devname, &type, &maj, &min);
 		if (matches != 5 || (type != 'c' && type != 'b')) {
 			fprintf(stderr, "Error: invalid devname entry: %s", buf);
 			ret = EXIT_FAILURE;
@@ -273,5 +279,5 @@ finish:
 const struct kmod_cmd kmod_cmd_static_nodes = {
 	.name = "static-nodes",
 	.cmd = do_static_nodes,
-	.help = "outputs the static-node information installed with the currently running kernel",
+	.help = "output the static-node information installed with the currently running kernel",
 };
